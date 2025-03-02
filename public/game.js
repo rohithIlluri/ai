@@ -49,6 +49,7 @@ let gameState = {
 let playerId = null;
 let playerName = '';
 let keys = {};
+let keyCodes = {}; // Track key codes separately for Windows compatibility
 let mousePosition = { x: 0, y: 0 };
 let camera = { x: 0, y: 0 };
 let lastUpdateTime = 0;
@@ -102,34 +103,35 @@ function init() {
         joinScreen.style.display = 'flex';
     });
     
-    // Keyboard controls - improved for cross-platform compatibility
+    // Keyboard controls - completely revamped for cross-platform compatibility
     window.addEventListener('keydown', (e) => {
         // Log key events for debugging on Windows
         if (isWindowsOS) {
-            console.log('KeyDown:', e.key, e.code);
+            console.log('KeyDown:', e.key, e.code, e.keyCode);
         }
         
-        // Handle both key and code for better cross-platform support
+        // Store both key and keyCode for maximum compatibility
         const key = e.key.toLowerCase();
         const code = e.code;
+        const keyCode = e.keyCode;
         
-        // Map both key and keyCode for better compatibility
         keys[key] = true;
+        keyCodes[code] = true;
         
-        // Also map arrow keys by code for Windows compatibility
-        if (code === 'ArrowUp' || code === 'KeyW') keys['arrowup'] = keys['w'] = true;
-        if (code === 'ArrowDown' || code === 'KeyS') keys['arrowdown'] = keys['s'] = true;
-        if (code === 'ArrowLeft' || code === 'KeyA') keys['arrowleft'] = keys['a'] = true;
-        if (code === 'ArrowRight' || code === 'KeyD') keys['arrowright'] = keys['d'] = true;
+        // Also store numeric keyCodes for maximum compatibility
+        if (keyCode) {
+            keyCodes[keyCode] = true;
+        }
         
         // Prevent scrolling with arrow keys and space
         if(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key) || 
-           ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
+           ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code) ||
+           [32, 37, 38, 39, 40].includes(keyCode)) {
             e.preventDefault();
         }
         
         // Space bar for shooting
-        if (key === ' ' || code === 'Space') {
+        if (key === ' ' || code === 'Space' || keyCode === 32) {
             shoot();
         }
     });
@@ -137,20 +139,20 @@ function init() {
     window.addEventListener('keyup', (e) => {
         // Log key events for debugging on Windows
         if (isWindowsOS) {
-            console.log('KeyUp:', e.key, e.code);
+            console.log('KeyUp:', e.key, e.code, e.keyCode);
         }
         
         const key = e.key.toLowerCase();
         const code = e.code;
+        const keyCode = e.keyCode;
         
-        // Clear both key and code mappings
         keys[key] = false;
+        keyCodes[code] = false;
         
-        // Also clear arrow keys by code for Windows compatibility
-        if (code === 'ArrowUp' || code === 'KeyW') keys['arrowup'] = keys['w'] = false;
-        if (code === 'ArrowDown' || code === 'KeyS') keys['arrowdown'] = keys['s'] = false;
-        if (code === 'ArrowLeft' || code === 'KeyA') keys['arrowleft'] = keys['a'] = false;
-        if (code === 'ArrowRight' || code === 'KeyD') keys['arrowright'] = keys['d'] = false;
+        // Also clear numeric keyCodes
+        if (keyCode) {
+            keyCodes[keyCode] = false;
+        }
     });
     
     // Mouse controls
@@ -209,16 +211,26 @@ function handleMovement(deltaTime) {
     let dx = 0;
     let dy = 0;
     
-    // Check for WASD and arrow keys
-    if (keys['w'] || keys['arrowup']) dy -= 1;
-    if (keys['s'] || keys['arrowdown']) dy += 1;
-    if (keys['a'] || keys['arrowleft']) dx -= 1;
-    if (keys['d'] || keys['arrowright']) dx += 1;
+    // Multi-layered movement detection for maximum compatibility
+    // First check keyCodes (most reliable for Windows)
+    if (keyCodes['ArrowUp'] || keyCodes['KeyW'] || keyCodes[87] || keyCodes[38]) dy -= 1;
+    if (keyCodes['ArrowDown'] || keyCodes['KeyS'] || keyCodes[83] || keyCodes[40]) dy += 1;
+    if (keyCodes['ArrowLeft'] || keyCodes['KeyA'] || keyCodes[65] || keyCodes[37]) dx -= 1;
+    if (keyCodes['ArrowRight'] || keyCodes['KeyD'] || keyCodes[68] || keyCodes[39]) dx += 1;
+    
+    // Then check keys as fallback
+    if (dx === 0 && dy === 0) {
+        if (keys['w'] || keys['arrowup']) dy -= 1;
+        if (keys['s'] || keys['arrowdown']) dy += 1;
+        if (keys['a'] || keys['arrowleft']) dx -= 1;
+        if (keys['d'] || keys['arrowright']) dx += 1;
+    }
     
     // Update debug info for Windows users
     if (isWindowsOS) {
         debugInfo.innerHTML = `
             Keys: ${JSON.stringify(keys)}<br>
+            KeyCodes: ${JSON.stringify(keyCodes)}<br>
             Movement: dx=${dx.toFixed(2)}, dy=${dy.toFixed(2)}<br>
             Position: x=${player.x.toFixed(0)}, y=${player.y.toFixed(0)}
         `;

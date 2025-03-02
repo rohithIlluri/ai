@@ -48,6 +48,12 @@ let terrainMesh; // Store terrain mesh
 let skybox; // Store skybox
 let playerModel; // Player model template
 
+// Camera settings
+let cameraMode = 'TPP'; // Start in TPP mode
+const TPP_DISTANCE = 10; // Distance behind player in TPP
+const TPP_HEIGHT = 5; // Height above player in TPP
+let orbitControls; // For TPP mode
+
 // Game state
 let gameState = {
     players: {},
@@ -100,6 +106,12 @@ function init() {
         // Load game assets
         loadAssets();
         
+        // Set initial crosshair visibility
+        const crosshair = document.getElementById('crosshair');
+        if (crosshair) {
+            crosshair.style.display = 'none'; // Hide initially since we start in TPP
+        }
+        
         // Join game when button is clicked
         joinButton.addEventListener('click', joinGame);
         nameInput.addEventListener('keypress', (e) => {
@@ -117,7 +129,20 @@ function init() {
             joinScreen.style.display = 'flex';
         });
         
-        // Keyboard controls
+        // Camera toggle button
+        const cameraToggle = document.getElementById('cameraToggle');
+        cameraToggle.addEventListener('click', () => {
+            toggleCameraMode();
+        });
+        
+        // Map view handlers
+        const minimap = document.getElementById('minimap');
+        minimap.addEventListener('click', toggleMapView);
+        
+        const closeMapButton = document.getElementById('closeMapViewButton');
+        closeMapButton.addEventListener('click', toggleMapView);
+        
+        // Map key handler
         window.addEventListener('keydown', (e) => {
             // Log key events for debugging on Windows
             if (isWindowsOS) {
@@ -144,9 +169,27 @@ function init() {
                 e.preventDefault();
             }
             
-            // Space bar for shooting
+            // Space bar for shooting - prioritized method
             if (key === ' ' || code === 'Space' || keyCode === 32) {
                 shoot();
+            }
+            
+            // Toggle camera mode with 'V' key
+            if (key === 'v' || code === 'KeyV' || keyCode === 86) {
+                toggleCameraMode();
+            }
+            
+            // Map view with 'M' key
+            if (key === 'm' || code === 'KeyM' || keyCode === 77) {
+                toggleMapView();
+            }
+            
+            // Close map view with ESC key
+            if (key === 'escape' || code === 'Escape' || keyCode === 27) {
+                const mapViewScreen = document.getElementById('mapViewScreen');
+                if (mapViewScreen.style.display === 'flex') {
+                    toggleMapView();
+                }
             }
         });
         
@@ -172,6 +215,8 @@ function init() {
         // Mouse controls for shooting
         document.addEventListener('mousedown', (e) => {
             if (e.button === 0) { // Left click, removed pointer lock requirement
+                // Space bar is now the primary shooting method, mouse click is secondary
+                if (!canShoot) return; // Don't shoot if on cooldown
                 shoot();
             }
         });
@@ -220,37 +265,8 @@ function initThreeJS() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     gameContainer.appendChild(renderer.domElement);
     
-    // Check if PointerLockControls is available
-    if (typeof THREE.PointerLockControls === 'undefined') {
-        console.error('PointerLockControls is not defined! Using fallback controls.');
-        // Create a simple fallback for controls
-        controls = {
-            lock: function() { 
-                console.log('Fallback lock called'); 
-                isPointerLocked = true;
-            },
-            unlock: function() { 
-                console.log('Fallback unlock called'); 
-                isPointerLocked = false;
-            }
-        };
-    } else {
-        console.log('Creating PointerLockControls');
-        // Create pointer lock controls
-        controls = new THREE.PointerLockControls(camera, renderer.domElement);
-        
-        // Add event listener for pointer lock changes
-        document.addEventListener('pointerlockchange', () => {
-            isPointerLocked = document.pointerLockElement === renderer.domElement;
-            console.log('Pointer lock state changed:', isPointerLocked);
-        });
-        
-        // Add event listener for pointer lock errors
-        document.addEventListener('pointerlockerror', (event) => {
-            console.error('Pointer lock error:', event);
-            alert('Could not lock pointer. Please try again or check browser permissions.');
-        });
-    }
+    // Create controls for both modes
+    setupControls();
     
     // Add lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -276,6 +292,197 @@ function initThreeJS() {
     createSkybox();
     
     console.log('Three.js initialization complete');
+}
+
+// Setup controls for both camera modes
+function setupControls() {
+    // Check if PointerLockControls is available for FPP
+    if (typeof THREE.PointerLockControls === 'undefined') {
+        console.error('PointerLockControls is not defined! Using fallback controls.');
+        // Create a simple fallback for controls
+        controls = {
+            lock: function() { 
+                console.log('Fallback lock called'); 
+                isPointerLocked = true;
+            },
+            unlock: function() { 
+                console.log('Fallback unlock called'); 
+                isPointerLocked = false;
+            }
+        };
+    } else {
+        console.log('Creating PointerLockControls');
+        // Create pointer lock controls for FPP
+        controls = new THREE.PointerLockControls(camera, renderer.domElement);
+        
+        // Add event listener for pointer lock changes
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = document.pointerLockElement === renderer.domElement;
+            console.log('Pointer lock state changed:', isPointerLocked);
+            
+            // Update UI based on pointer lock state
+            const crosshair = document.getElementById('crosshair');
+            if (crosshair) {
+                crosshair.style.display = isPointerLocked ? 'block' : 'none';
+            }
+        });
+        
+        // Add event listener for pointer lock errors
+        document.addEventListener('pointerlockerror', (event) => {
+            console.error('Pointer lock error:', event);
+            alert('Could not lock pointer. Please try again or check browser permissions.');
+        });
+    }
+    
+    // Check if OrbitControls is available for TPP
+    if (typeof THREE.OrbitControls === 'undefined') {
+        console.error('OrbitControls is not defined! Using fallback for TPP mode.');
+        // Create a simple fallback for orbit controls
+        orbitControls = {
+            update: function() { console.log('Fallback orbit update called'); },
+            enabled: true
+        };
+    } else {
+        console.log('Creating OrbitControls');
+        // Create orbit controls for TPP
+        orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+        orbitControls.enableDamping = true;
+        orbitControls.dampingFactor = 0.25;
+        orbitControls.screenSpacePanning = false;
+        orbitControls.maxPolarAngle = Math.PI / 2; // Limit vertical rotation to horizon
+        orbitControls.minPolarAngle = Math.PI / 6; // Prevent looking too far down
+        orbitControls.minDistance = 5; // Minimum zoom distance
+        orbitControls.maxDistance = 20; // Increased maximum zoom distance
+        orbitControls.rotateSpeed = 0.5; // Slower rotation for smoother camera
+        orbitControls.zoomSpeed = 0.5; // Slower zoom for smoother camera
+        orbitControls.enabled = false; // Start with orbit controls disabled
+        
+        // Add key bindings for camera height adjustment in TPP mode
+        window.addEventListener('keydown', (e) => {
+            if (cameraMode === 'TPP' && orbitControls.enabled) {
+                // PageUp to increase camera height
+                if (e.key === 'PageUp' || e.code === 'PageUp' || e.keyCode === 33) {
+                    const currentTarget = orbitControls.target.clone();
+                    currentTarget.y += 1; // Increase target height
+                    orbitControls.target.copy(currentTarget);
+                    e.preventDefault();
+                }
+                
+                // PageDown to decrease camera height
+                if (e.key === 'PageDown' || e.code === 'PageDown' || e.keyCode === 34) {
+                    const currentTarget = orbitControls.target.clone();
+                    currentTarget.y = Math.max(1, currentTarget.y - 1); // Decrease but keep above ground
+                    orbitControls.target.copy(currentTarget);
+                    e.preventDefault();
+                }
+            }
+        });
+    }
+}
+
+// Toggle between TPP and FPP camera modes
+function toggleCameraMode() {
+    if (!playerId || !gameState.players[playerId] || !playerMeshes[playerId]) {
+        console.log('Cannot toggle camera mode: player not initialized');
+        return;
+    }
+    
+    const playerMesh = playerMeshes[playerId];
+    const player = gameState.players[playerId];
+    const mapCenter = {
+        x: gameState.mapSize.width / 2,
+        y: gameState.mapSize.height / 2
+    };
+    
+    if (cameraMode === 'FPP') {
+        // Switching from FPP to TPP
+        cameraMode = 'TPP';
+        
+        // Unlock pointer if locked
+        if (controls.isLocked) {
+            controls.unlock();
+        }
+        
+        // Enable orbit controls
+        if (orbitControls) {
+            orbitControls.enabled = true;
+            
+            // Set orbit controls target to player position
+            orbitControls.target.set(
+                playerMesh.position.x,
+                playerMesh.position.y + 2, // Target player's head
+                playerMesh.position.z
+            );
+            
+            // Position camera behind player based on player's rotation
+            const distance = 10;
+            const height = 5;
+            const angle = playerMesh.rotation.y;
+            
+            camera.position.set(
+                playerMesh.position.x - Math.sin(angle) * distance,
+                playerMesh.position.y + height,
+                playerMesh.position.z - Math.cos(angle) * distance
+            );
+            
+            // Update orbit controls
+            orbitControls.update();
+        }
+        
+        console.log('Switched to TPP mode');
+    } else {
+        // Switching from TPP to FPP
+        cameraMode = 'FPP';
+        
+        // Disable orbit controls
+        if (orbitControls) {
+            orbitControls.enabled = false;
+        }
+        
+        // Position camera at player's eye level
+        camera.position.set(
+            playerMesh.position.x,
+            playerMesh.position.y + 3, // Eye level
+            playerMesh.position.z
+        );
+        
+        // Make camera look in the direction the player is facing
+        const lookDirection = new THREE.Vector3(
+            -Math.sin(playerMesh.rotation.y),
+            0,
+            -Math.cos(playerMesh.rotation.y)
+        );
+        
+        const targetPosition = new THREE.Vector3(
+            camera.position.x + lookDirection.x,
+            camera.position.y,
+            camera.position.z + lookDirection.z
+        );
+        
+        camera.lookAt(targetPosition);
+        
+        // Lock pointer for FPP controls
+        controls.lock();
+        
+        console.log('Switched to FPP mode');
+    }
+    
+    // Update button text
+    updateCameraToggleButton();
+    
+    // Update crosshair visibility
+    const crosshair = document.getElementById('crosshair');
+    if (crosshair) {
+        crosshair.style.display = cameraMode === 'FPP' ? 'block' : 'none';
+    }
+}
+
+// Update camera toggle button text
+function updateCameraToggleButton() {
+    const cameraToggle = document.getElementById('cameraToggle');
+    if (cameraToggle) {
+        cameraToggle.textContent = cameraMode === 'TPP' ? 'Switch to FPP' : 'Switch to TPP';
+    }
 }
 
 // Create terrain
@@ -351,12 +558,8 @@ function loadAssets() {
             console.error('Error loading asset:', url);
         };
         
-        // Load player model
-        // For now, we'll use a simple box as the player model
-        const boxGeometry = new THREE.BoxGeometry(2, 4, 2);
-        const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-        playerModel = new THREE.Mesh(boxGeometry, boxMaterial);
-        playerModel.castShadow = true;
+        // Create a better player model
+        playerModel = createPlayerModel();
         
         // Create a simple bullet model
         const bulletGeometry = new THREE.SphereGeometry(0.5, 8, 8);
@@ -377,6 +580,70 @@ function loadAssets() {
     }, 2000);
 }
 
+// Create a better player model
+function createPlayerModel() {
+    // Create a group to hold all parts of the player
+    const playerGroup = new THREE.Group();
+    
+    // Create body (torso)
+    const bodyGeometry = new THREE.BoxGeometry(2, 3, 1);
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x3498db });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.y = 1.5;
+    body.castShadow = true;
+    playerGroup.add(body);
+    
+    // Create head
+    const headGeometry = new THREE.SphereGeometry(0.8, 16, 16);
+    const headMaterial = new THREE.MeshStandardMaterial({ color: 0xf1c40f });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.y = 3.5;
+    head.castShadow = true;
+    playerGroup.add(head);
+    
+    // Create arms
+    const armGeometry = new THREE.BoxGeometry(0.6, 2, 0.6);
+    const armMaterial = new THREE.MeshStandardMaterial({ color: 0x3498db });
+    
+    // Left arm
+    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.position.set(-1.3, 1.5, 0);
+    leftArm.castShadow = true;
+    playerGroup.add(leftArm);
+    
+    // Right arm
+    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.position.set(1.3, 1.5, 0);
+    rightArm.castShadow = true;
+    playerGroup.add(rightArm);
+    
+    // Create legs
+    const legGeometry = new THREE.BoxGeometry(0.8, 2, 0.8);
+    const legMaterial = new THREE.MeshStandardMaterial({ color: 0x34495e });
+    
+    // Left leg
+    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+    leftLeg.position.set(-0.6, -0.5, 0);
+    leftLeg.castShadow = true;
+    playerGroup.add(leftLeg);
+    
+    // Right leg
+    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+    rightLeg.position.set(0.6, -0.5, 0);
+    rightLeg.castShadow = true;
+    playerGroup.add(rightLeg);
+    
+    // Add a weapon
+    const gunGeometry = new THREE.BoxGeometry(0.4, 0.4, 2);
+    const gunMaterial = new THREE.MeshStandardMaterial({ color: 0x2c3e50 });
+    const gun = new THREE.Mesh(gunGeometry, gunMaterial);
+    gun.position.set(1.5, 1.5, -1);
+    gun.castShadow = true;
+    playerGroup.add(gun);
+    
+    return playerGroup;
+}
+
 // Handle window resize
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -390,14 +657,24 @@ function joinGame() {
     socket.emit('join', playerName);
     joinScreen.style.display = 'none';
     
-    console.log('Attempting to lock pointer');
+    // Start in TPP mode by default
+    cameraMode = 'TPP';
+    if (orbitControls) {
+        orbitControls.enabled = true;
+    }
     
-    // Lock pointer for FPS controls
-    controls.lock();
+    // Update camera toggle button
+    updateCameraToggleButton();
     
-    // Listen for pointer lock events
+    // Update crosshair visibility
+    const crosshair = document.getElementById('crosshair');
+    if (crosshair) {
+        crosshair.style.display = cameraMode === 'FPP' ? 'block' : 'none';
+    }
+    
+    // Listen for pointer lock events for FPP mode
     renderer.domElement.addEventListener('click', () => {
-        if (!isPointerLocked) {
+        if (cameraMode === 'FPP' && !isPointerLocked) {
             console.log('Clicked on game, attempting to lock pointer');
             controls.lock();
         }
@@ -406,7 +683,10 @@ function joinGame() {
 
 // Handle player movement
 function handleMovement(deltaTime) {
-    if (!playerId || !gameState.players[playerId]) return;
+    if (!playerId || !gameState.players[playerId]) {
+        console.log('Cannot handle movement: player not found');
+        return;
+    }
     
     const player = gameState.players[playerId];
     const speed = 0.5 * (deltaTime / 16.67); // Normalize speed based on frame time
@@ -433,42 +713,74 @@ function handleMovement(deltaTime) {
     // Only process movement if keys are pressed
     if (moveForward === 0 && moveBackward === 0 && moveLeft === 0 && moveRight === 0) return;
     
-    // Get current camera direction for reference
-    const cameraDirection = new THREE.Vector3();
-    camera.getWorldDirection(cameraDirection);
-    cameraDirection.y = 0; // Keep movement on the XZ plane
-    cameraDirection.normalize();
+    // Get movement direction based on camera mode
+    let moveDirection = new THREE.Vector3(0, 0, 0);
     
-    // Calculate forward and right vectors based on camera orientation
-    const forward = cameraDirection.clone();
-    
-    // Calculate right vector correctly (camera's right)
-    const right = new THREE.Vector3();
-    right.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
-    
-    // Calculate movement direction based on key inputs
-    const moveDirection = new THREE.Vector3(0, 0, 0);
-    
-    // Add movement components based on key presses
-    if (moveForward) {
-        moveDirection.add(forward);
+    if (cameraMode === 'FPP') {
+        // FPP mode - movement based on camera direction
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
+        cameraDirection.y = 0; // Keep movement on the XZ plane
+        cameraDirection.normalize();
+        
+        // Calculate forward and right vectors based on camera orientation
+        const forward = cameraDirection.clone();
+        
+        // Calculate right vector correctly - FIXED: swapped the order of vectors
+        const right = new THREE.Vector3();
+        right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
+        
+        // Add movement components based on key presses
+        if (moveForward) {
+            moveDirection.add(forward);
+        }
+        if (moveBackward) {
+            moveDirection.add(forward.clone().negate());
+        }
+        if (moveRight) {
+            moveDirection.add(right);
+        }
+        if (moveLeft) {
+            moveDirection.add(right.clone().negate());
+        }
+    } else {
+        // TPP mode - movement based on camera direction, not world axes
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
+        cameraDirection.y = 0; // Keep movement on the XZ plane
+        cameraDirection.normalize();
+        
+        // Calculate forward and right vectors based on camera orientation
+        const forward = cameraDirection.clone();
+        
+        // Calculate right vector correctly - FIXED: swapped the order of vectors
+        const right = new THREE.Vector3();
+        right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
+        
+        // Add movement components based on key presses
+        if (moveForward) {
+            moveDirection.add(forward);
+        }
+        if (moveBackward) {
+            moveDirection.add(forward.clone().negate());
+        }
+        if (moveRight) {
+            moveDirection.add(right);
+        }
+        if (moveLeft) {
+            moveDirection.add(right.clone().negate());
+        }
     }
-    if (moveBackward) {
-        moveDirection.add(forward.clone().negate());
-    }
-    if (moveRight) {
-        moveDirection.add(right);
-    }
-    if (moveLeft) {
-        moveDirection.add(right.clone().negate());
-    }
     
-    // Normalize the movement direction if moving diagonally
+    // Normalize the movement direction if moving diagonally to maintain consistent speed
     if (moveDirection.length() > 0) {
         moveDirection.normalize();
     }
     
     // Apply movement
+    const oldX = player.x;
+    const oldY = player.y;
+    
     player.x += moveDirection.x * speed;
     player.y += moveDirection.z * speed; // Note: player.y is actually Z in 3D space
     
@@ -489,7 +801,7 @@ function handleMovement(deltaTime) {
         socket.emit('move', { x: player.x, y: player.y });
     }
     
-    // Update camera position based on player position
+    // Update player mesh and camera position
     if (playerMeshes[playerId]) {
         const playerMesh = playerMeshes[playerId];
         
@@ -503,9 +815,23 @@ function handleMovement(deltaTime) {
         
         // Rotate player mesh to face the direction of movement if moving
         if (moveDirection.length() > 0) {
-            const movementAngle = Math.atan2(moveDirection.x, moveDirection.z);
-            playerMesh.rotation.y = movementAngle;
+            // Calculate target rotation based on movement direction
+            const targetRotationY = Math.atan2(moveDirection.x, moveDirection.z);
+            
+            // Smooth rotation using lerp (linear interpolation)
+            // Calculate the shortest rotation path
+            let rotationDiff = targetRotationY - playerMesh.rotation.y;
+            
+            // Normalize the rotation difference to be between -PI and PI
+            while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2;
+            while (rotationDiff < -Math.PI) rotationDiff += Math.PI * 2;
+            
+            // Apply smooth rotation with increased speed for more responsive turning
+            playerMesh.rotation.y += rotationDiff * 0.2; // Increased from 0.15 for faster rotation
         }
+        
+        // Update camera position based on camera mode
+        updateCameraPosition(playerMesh, moveDirection);
     }
     
     // Check for power-up collection
@@ -518,6 +844,103 @@ function handleMovement(deltaTime) {
             socket.emit('collectPowerUp', powerUp.id);
         }
     });
+}
+
+// Update camera position based on camera mode
+function updateCameraPosition(playerMesh, moveDirection) {
+    if (!playerMesh) {
+        console.log('Cannot update camera: player mesh not found');
+        return;
+    }
+    
+    if (cameraMode === 'FPP') {
+        // In FPP, camera is at player's eye level
+        camera.position.set(
+            playerMesh.position.x,
+            playerMesh.position.y + 3, // Eye level
+            playerMesh.position.z
+        );
+        
+        // Ensure camera rotation matches player rotation in FPP mode
+        if (moveDirection && moveDirection.length() > 0) {
+            // Only update camera direction if player is moving
+            const lookDirection = new THREE.Vector3(
+                moveDirection.x,
+                0,
+                moveDirection.z
+            ).normalize();
+            
+            // Create a temporary target position to look at
+            const targetPosition = new THREE.Vector3(
+                camera.position.x + lookDirection.x,
+                camera.position.y,
+                camera.position.z + lookDirection.z
+            );
+            
+            // Make camera look in the direction of movement
+            camera.lookAt(targetPosition);
+        }
+    } else {
+        // In TPP, camera follows behind the player
+        if (!orbitControls || !orbitControls.enabled) {
+            // If orbit controls are not enabled, use fixed TPP camera
+            // Calculate the offset based on player's rotation
+            const cameraOffset = new THREE.Vector3(0, TPP_HEIGHT, TPP_DISTANCE);
+            
+            // Apply player rotation to the offset
+            const rotationMatrix = new THREE.Matrix4();
+            rotationMatrix.makeRotationY(playerMesh.rotation.y);
+            cameraOffset.applyMatrix4(rotationMatrix);
+            
+            // Position camera behind player
+            camera.position.set(
+                playerMesh.position.x - cameraOffset.x,
+                playerMesh.position.y + cameraOffset.y,
+                playerMesh.position.z - cameraOffset.z
+            );
+            
+            // Make camera look at player
+            camera.lookAt(
+                playerMesh.position.x,
+                playerMesh.position.y + 2, // Look at player's head
+                playerMesh.position.z
+            );
+        }
+        
+        // Update orbit controls target to follow player
+        if (orbitControls && orbitControls.target) {
+            // Smoothly move the target to the player position
+            orbitControls.target.lerp(
+                new THREE.Vector3(
+                    playerMesh.position.x,
+                    playerMesh.position.y + 2, // Target player's head
+                    playerMesh.position.z
+                ),
+                0.2 // Increased from 0.1 for smoother following
+            );
+            
+            // Ensure the camera is not too close to the player
+            const distanceToPlayer = camera.position.distanceTo(new THREE.Vector3(
+                playerMesh.position.x,
+                playerMesh.position.y + 2,
+                playerMesh.position.z
+            ));
+            
+            if (distanceToPlayer < 5) {
+                // Move camera back to minimum distance
+                const direction = new THREE.Vector3().subVectors(
+                    camera.position,
+                    new THREE.Vector3(playerMesh.position.x, playerMesh.position.y + 2, playerMesh.position.z)
+                ).normalize();
+                
+                camera.position.set(
+                    playerMesh.position.x + direction.x * 5,
+                    Math.max(playerMesh.position.y + 2 + direction.y * 5, playerMesh.position.y + 3),
+                    playerMesh.position.z + direction.z * 5
+                );
+            }
+        }
+    }
 }
 
 // Shoot function
@@ -588,8 +1011,21 @@ function updateObjects() {
     Object.values(gameState.players).forEach(player => {
         // Create new player mesh if it doesn't exist
         if (!playerMeshes[player.id]) {
+            console.log('Creating new player mesh for player:', player.id, player.name);
             const newPlayerMesh = playerModel.clone();
-            newPlayerMesh.material = new THREE.MeshStandardMaterial({ color: player.color });
+            
+            // Set player color
+            newPlayerMesh.children.forEach(child => {
+                if (child.isMesh) {
+                    child.material = child.material.clone();
+                    if (player.id === playerId) {
+                        // Use a different color for the current player
+                        child.material.color.set(0x3498db);
+                    } else {
+                        child.material.color.set(player.color);
+                    }
+                }
+            });
             
             // Add player name label
             const nameCanvas = document.createElement('canvas');
@@ -604,7 +1040,7 @@ function updateObjects() {
             const nameTexture = new THREE.CanvasTexture(nameCanvas);
             const nameMaterial = new THREE.SpriteMaterial({ map: nameTexture });
             const nameSprite = new THREE.Sprite(nameMaterial);
-            nameSprite.position.y = 3; // Position above player
+            nameSprite.position.y = 5; // Position above player
             nameSprite.scale.set(5, 1.25, 1);
             
             newPlayerMesh.add(nameSprite);
@@ -614,7 +1050,22 @@ function updateObjects() {
         
         // Update player mesh position
         const playerMesh = playerMeshes[player.id];
-        playerMesh.position.set(player.x - mapCenter.x, 2, player.y - mapCenter.y);
+        playerMesh.position.set(player.x - mapCenter.x, 0, player.y - mapCenter.y);
+        
+        // If this is the current player, update the camera position in TPP mode
+        if (player.id === playerId && cameraMode === 'TPP' && orbitControls) {
+            // Update orbit controls target to follow player
+            if (orbitControls.target) {
+                orbitControls.target.lerp(
+                    new THREE.Vector3(
+                        player.x - mapCenter.x,
+                        2, // Target player's head
+                        player.y - mapCenter.y
+                    ),
+                    0.1 // Smoothing factor
+                );
+            }
+        }
         
         // Update health bar
         if (player.id === playerId) {
@@ -825,6 +1276,11 @@ function gameLoop(timestamp) {
     // Draw minimap
     drawMinimap();
     
+    // Update orbit controls if in TPP mode
+    if (cameraMode === 'TPP' && orbitControls && orbitControls.update) {
+        orbitControls.update();
+    }
+    
     // Render scene
     renderer.render(scene, camera);
     
@@ -835,25 +1291,227 @@ function gameLoop(timestamp) {
 // Socket.IO event handlers
 socket.on('selfId', (id) => {
     playerId = id;
+    console.log('Received player ID:', playerId);
+    
+    // Wait for the next game state update to initialize player position
+    const initializePlayerPosition = () => {
+        if (gameState.players[playerId]) {
+            console.log('Initializing player position');
+            
+            // Get player position
+            const player = gameState.players[playerId];
+            const mapCenter = {
+                x: gameState.mapSize.width / 2,
+                y: gameState.mapSize.height / 2
+            };
+            
+            // Position camera based on player position
+            if (cameraMode === 'TPP') {
+                // In TPP mode, position camera behind player
+                camera.position.set(
+                    player.x - mapCenter.x,
+                    10, // Height
+                    player.y - mapCenter.y + 10 // Behind player
+                );
+                
+                // Set orbit controls target to player position
+                if (orbitControls && orbitControls.target) {
+                    orbitControls.target.set(
+                        player.x - mapCenter.x,
+                        2, // Player height
+                        player.y - mapCenter.y
+                    );
+                }
+            } else {
+                // In FPP mode, position camera at player's eye level
+                camera.position.set(
+                    player.x - mapCenter.x,
+                    3, // Eye level
+                    player.y - mapCenter.y
+                );
+            }
+            
+            // Force an initial movement update to ensure everything is in sync
+            handleMovement(16.67); // Default frame time
+            
+            // Remove the listener once initialized
+            socket.off('gameState', initializePlayerPosition);
+        }
+    };
+    
+    // Listen for the next game state update to initialize
+    socket.on('gameState', initializePlayerPosition);
 });
 
 socket.on('gameState', (state) => {
     gameState = state;
+    
+    // Update player count
+    if (playerCount) {
+        const count = Object.keys(state.players).length;
+        playerCount.textContent = `Players: ${count}`;
+    }
 });
 
 socket.on('dead', () => {
-    controls.unlock();
+    if (cameraMode === 'FPP') {
+        controls.unlock();
+    }
     gameOverScreen.style.display = 'flex';
 });
 
 socket.on('winner', () => {
-    controls.unlock();
+    if (cameraMode === 'FPP') {
+        controls.unlock();
+    }
     winnerScreen.style.display = 'flex';
 });
 
 socket.on('gameReset', () => {
     // Game has been reset
 });
+
+// Toggle map view
+function toggleMapView() {
+    const mapViewScreen = document.getElementById('mapViewScreen');
+    if (mapViewScreen.style.display === 'flex') {
+        mapViewScreen.style.display = 'none';
+        // Re-enable controls based on camera mode
+        if (cameraMode === 'FPP' && !isPointerLocked) {
+            controls.lock();
+        } else if (cameraMode === 'TPP') {
+            orbitControls.enabled = true;
+        }
+    } else {
+        mapViewScreen.style.display = 'flex';
+        // Disable controls while viewing map
+        if (cameraMode === 'FPP' && isPointerLocked) {
+            controls.unlock();
+        } else if (cameraMode === 'TPP') {
+            orbitControls.enabled = false;
+        }
+        
+        // Draw full map
+        drawFullMap();
+    }
+}
+
+// Draw full map
+function drawFullMap() {
+    const fullMapCanvas = document.getElementById('fullMapCanvas');
+    const ctx = fullMapCanvas.getContext('2d');
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, fullMapCanvas.width, fullMapCanvas.height);
+    
+    // Draw background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(0, 0, fullMapCanvas.width, fullMapCanvas.height);
+    
+    // Calculate scale factor
+    const scaleFactor = fullMapCanvas.width / gameState.mapSize.width;
+    
+    // Draw safe zone
+    const mapCenterX = gameState.mapSize.width / 2 * scaleFactor;
+    const mapCenterY = gameState.mapSize.height / 2 * scaleFactor;
+    const safeZoneRadius = gameState.mapRadius * scaleFactor;
+    
+    ctx.beginPath();
+    ctx.arc(mapCenterX, mapCenterY, safeZoneRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#3498db';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    // Draw grid
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    
+    const gridSize = 100;
+    const gridCount = Math.ceil(gameState.mapSize.width / gridSize);
+    
+    for (let i = 0; i <= gridCount; i++) {
+        const pos = i * gridSize * scaleFactor;
+        
+        // Vertical lines
+        ctx.beginPath();
+        ctx.moveTo(pos, 0);
+        ctx.lineTo(pos, fullMapCanvas.height);
+        ctx.stroke();
+        
+        // Horizontal lines
+        ctx.beginPath();
+        ctx.moveTo(0, pos);
+        ctx.lineTo(fullMapCanvas.width, pos);
+        ctx.stroke();
+    }
+    
+    // Draw players
+    Object.values(gameState.players).forEach(player => {
+        const mapX = player.x * scaleFactor;
+        const mapY = player.y * scaleFactor;
+        
+        ctx.beginPath();
+        ctx.arc(mapX, mapY, 5, 0, Math.PI * 2);
+        
+        if (player.id === playerId) {
+            ctx.fillStyle = 'white';
+            
+            // Draw direction indicator
+            const playerMesh = playerMeshes[playerId];
+            if (playerMesh) {
+                const angle = playerMesh.rotation.y;
+                const triangleSize = 10;
+                
+                // Convert Three.js rotation to canvas angle
+                const canvasAngle = angle + Math.PI/2;
+                
+                ctx.beginPath();
+                ctx.moveTo(
+                    mapX + triangleSize * Math.cos(canvasAngle),
+                    mapY + triangleSize * Math.sin(canvasAngle)
+                );
+                ctx.lineTo(
+                    mapX + triangleSize * 0.5 * Math.cos(canvasAngle + Math.PI * 0.8),
+                    mapY + triangleSize * 0.5 * Math.sin(canvasAngle + Math.PI * 0.8)
+                );
+                ctx.lineTo(
+                    mapX + triangleSize * 0.5 * Math.cos(canvasAngle - Math.PI * 0.8),
+                    mapY + triangleSize * 0.5 * Math.sin(canvasAngle - Math.PI * 0.8)
+                );
+                ctx.closePath();
+                ctx.fillStyle = 'white';
+                ctx.fill();
+            }
+        } else {
+            ctx.fillStyle = player.color;
+        }
+        
+        ctx.fill();
+        
+        // Draw player name
+        ctx.font = '12px Arial';
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.name, mapX, mapY - 10);
+    });
+    
+    // Draw power-ups
+    gameState.powerUps.forEach(powerUp => {
+        const mapX = powerUp.x * scaleFactor;
+        const mapY = powerUp.y * scaleFactor;
+        
+        ctx.beginPath();
+        ctx.arc(mapX, mapY, 4, 0, Math.PI * 2);
+        
+        if (powerUp.type === 'health') {
+            ctx.fillStyle = '#2ecc71';
+        } else {
+            ctx.fillStyle = '#f1c40f';
+        }
+        
+        ctx.fill();
+    });
+}
 
 // Initialize the game
 init(); 

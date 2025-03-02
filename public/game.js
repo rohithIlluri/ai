@@ -90,103 +90,121 @@ if (isWindowsOS) {
 function init() {
     console.log('Game initialization started');
     
-    // Show loading screen
-    loadingScreen.style.display = 'flex';
-    
-    // Initialize Three.js
-    initThreeJS();
-    
-    // Load game assets
-    loadAssets();
-    
-    // Join game when button is clicked
-    joinButton.addEventListener('click', joinGame);
-    nameInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') joinGame();
-    });
-    
-    // Restart game
-    restartButton.addEventListener('click', () => {
-        gameOverScreen.style.display = 'none';
+    try {
+        // Show loading screen
+        loadingScreen.style.display = 'flex';
+        
+        // Initialize Three.js
+        initThreeJS();
+        
+        // Load game assets
+        loadAssets();
+        
+        // Join game when button is clicked
+        joinButton.addEventListener('click', joinGame);
+        nameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') joinGame();
+        });
+        
+        // Restart game
+        restartButton.addEventListener('click', () => {
+            gameOverScreen.style.display = 'none';
+            joinScreen.style.display = 'flex';
+        });
+        
+        winRestartButton.addEventListener('click', () => {
+            winnerScreen.style.display = 'none';
+            joinScreen.style.display = 'flex';
+        });
+        
+        // Keyboard controls
+        window.addEventListener('keydown', (e) => {
+            // Log key events for debugging on Windows
+            if (isWindowsOS) {
+                console.log('KeyDown:', e.key, e.code, e.keyCode);
+            }
+            
+            // Store both key and keyCode for maximum compatibility
+            const key = e.key.toLowerCase();
+            const code = e.code;
+            const keyCode = e.keyCode;
+            
+            keys[key] = true;
+            keyCodes[code] = true;
+            
+            // Also store numeric keyCodes for maximum compatibility
+            if (keyCode) {
+                keyCodes[keyCode] = true;
+            }
+            
+            // Prevent scrolling with arrow keys and space
+            if(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key) || 
+               ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code) ||
+               [32, 37, 38, 39, 40].includes(keyCode)) {
+                e.preventDefault();
+            }
+            
+            // Space bar for shooting
+            if (key === ' ' || code === 'Space' || keyCode === 32) {
+                shoot();
+            }
+        });
+        
+        window.addEventListener('keyup', (e) => {
+            // Log key events for debugging on Windows
+            if (isWindowsOS) {
+                console.log('KeyUp:', e.key, e.code, e.keyCode);
+            }
+            
+            const key = e.key.toLowerCase();
+            const code = e.code;
+            const keyCode = e.keyCode;
+            
+            keys[key] = false;
+            keyCodes[code] = false;
+            
+            // Also clear numeric keyCodes
+            if (keyCode) {
+                keyCodes[keyCode] = false;
+            }
+        });
+        
+        // Mouse controls for shooting
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Left click, removed pointer lock requirement
+                shoot();
+            }
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', onWindowResize);
+        
+        // Game loop with timestamp for smoother animation
+        lastUpdateTime = performance.now();
+        requestAnimationFrame(gameLoop);
+        
+        console.log('Game initialization completed');
+    } catch (error) {
+        console.error('Error during game initialization:', error);
+        alert('There was an error initializing the game. Please refresh the page or try a different browser.');
+        
+        // Force hide loading screen and show join screen as fallback
+        loadingScreen.style.display = 'none';
         joinScreen.style.display = 'flex';
-    });
-    
-    winRestartButton.addEventListener('click', () => {
-        winnerScreen.style.display = 'none';
-        joinScreen.style.display = 'flex';
-    });
-    
-    // Keyboard controls
-    window.addEventListener('keydown', (e) => {
-        // Log key events for debugging on Windows
-        if (isWindowsOS) {
-            console.log('KeyDown:', e.key, e.code, e.keyCode);
-        }
-        
-        // Store both key and keyCode for maximum compatibility
-        const key = e.key.toLowerCase();
-        const code = e.code;
-        const keyCode = e.keyCode;
-        
-        keys[key] = true;
-        keyCodes[code] = true;
-        
-        // Also store numeric keyCodes for maximum compatibility
-        if (keyCode) {
-            keyCodes[keyCode] = true;
-        }
-        
-        // Prevent scrolling with arrow keys and space
-        if(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key) || 
-           ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code) ||
-           [32, 37, 38, 39, 40].includes(keyCode)) {
-            e.preventDefault();
-        }
-        
-        // Space bar for shooting
-        if (key === ' ' || code === 'Space' || keyCode === 32) {
-            shoot();
-        }
-    });
-    
-    window.addEventListener('keyup', (e) => {
-        // Log key events for debugging on Windows
-        if (isWindowsOS) {
-            console.log('KeyUp:', e.key, e.code, e.keyCode);
-        }
-        
-        const key = e.key.toLowerCase();
-        const code = e.code;
-        const keyCode = e.keyCode;
-        
-        keys[key] = false;
-        keyCodes[code] = false;
-        
-        // Also clear numeric keyCodes
-        if (keyCode) {
-            keyCodes[keyCode] = false;
-        }
-    });
-    
-    // Mouse controls for shooting
-    document.addEventListener('mousedown', (e) => {
-        if (e.button === 0 && isPointerLocked) { // Left click
-            shoot();
-        }
-    });
-    
-    // Handle window resize
-    window.addEventListener('resize', onWindowResize);
-    
-    // Game loop with timestamp for smoother animation
-    lastUpdateTime = performance.now();
-    requestAnimationFrame(gameLoop);
-    
-    console.log('Game initialization completed');
+    }
 }
 
 // Initialize Three.js
 function initThreeJS() {
+    console.log('Initializing Three.js');
+    
+    // Check if THREE is defined
+    if (typeof THREE === 'undefined') {
+        console.error('THREE is not defined! Cannot initialize the game.');
+        alert('Error loading Three.js. Please refresh the page or try a different browser.');
+        return;
+    }
+    
     // Create scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB); // Sky blue background
@@ -202,20 +220,37 @@ function initThreeJS() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     gameContainer.appendChild(renderer.domElement);
     
-    // Create pointer lock controls
-    controls = new PointerLockControls(camera, renderer.domElement);
-    
-    // Add event listener for pointer lock changes
-    document.addEventListener('pointerlockchange', () => {
-        isPointerLocked = document.pointerLockElement === renderer.domElement;
-        console.log('Pointer lock state changed:', isPointerLocked);
-    });
-    
-    // Add event listener for pointer lock errors
-    document.addEventListener('pointerlockerror', (event) => {
-        console.error('Pointer lock error:', event);
-        alert('Could not lock pointer. Please try again or check browser permissions.');
-    });
+    // Check if PointerLockControls is available
+    if (typeof THREE.PointerLockControls === 'undefined') {
+        console.error('PointerLockControls is not defined! Using fallback controls.');
+        // Create a simple fallback for controls
+        controls = {
+            lock: function() { 
+                console.log('Fallback lock called'); 
+                isPointerLocked = true;
+            },
+            unlock: function() { 
+                console.log('Fallback unlock called'); 
+                isPointerLocked = false;
+            }
+        };
+    } else {
+        console.log('Creating PointerLockControls');
+        // Create pointer lock controls
+        controls = new THREE.PointerLockControls(camera, renderer.domElement);
+        
+        // Add event listener for pointer lock changes
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = document.pointerLockElement === renderer.domElement;
+            console.log('Pointer lock state changed:', isPointerLocked);
+        });
+        
+        // Add event listener for pointer lock errors
+        document.addEventListener('pointerlockerror', (event) => {
+            console.error('Pointer lock error:', event);
+            alert('Could not lock pointer. Please try again or check browser permissions.');
+        });
+    }
     
     // Add lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -239,6 +274,8 @@ function initThreeJS() {
     
     // Create skybox
     createSkybox();
+    
+    console.log('Three.js initialization complete');
 }
 
 // Create terrain
@@ -292,40 +329,52 @@ function createSkybox() {
 
 // Load game assets
 function loadAssets() {
-    // Track loading progress
-    const loadingManager = new THREE.LoadingManager();
-    loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
-        const progress = (itemsLoaded / itemsTotal) * 100;
-        loadingProgress.style.width = `${progress}%`;
-        console.log(`Loading progress: ${progress.toFixed(0)}%`);
-    };
+    console.log('Starting asset loading process');
     
-    loadingManager.onLoad = () => {
-        // Hide loading screen when all assets are loaded
-        console.log('All assets loaded successfully');
-        loadingScreen.style.display = 'none';
-        joinScreen.style.display = 'flex';
-    };
+    try {
+        // Track loading progress
+        const loadingManager = new THREE.LoadingManager();
+        loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+            const progress = (itemsLoaded / itemsTotal) * 100;
+            loadingProgress.style.width = `${progress}%`;
+            console.log(`Loading progress: ${progress.toFixed(0)}%`);
+        };
+        
+        loadingManager.onLoad = () => {
+            // Hide loading screen when all assets are loaded
+            console.log('All assets loaded successfully');
+            loadingScreen.style.display = 'none';
+            joinScreen.style.display = 'flex';
+        };
+        
+        loadingManager.onError = (url) => {
+            console.error('Error loading asset:', url);
+        };
+        
+        // Load player model
+        // For now, we'll use a simple box as the player model
+        const boxGeometry = new THREE.BoxGeometry(2, 4, 2);
+        const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        playerModel = new THREE.Mesh(boxGeometry, boxMaterial);
+        playerModel.castShadow = true;
+        
+        // Create a simple bullet model
+        const bulletGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+        const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        bulletModel = new THREE.Mesh(bulletGeometry, bulletMaterial);
+        
+        console.log('Basic models created');
+    } catch (error) {
+        console.error('Error in asset loading:', error);
+    }
     
-    // Load player model
-    // For now, we'll use a simple box as the player model
-    const boxGeometry = new THREE.BoxGeometry(2, 4, 2);
-    const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-    playerModel = new THREE.Mesh(boxGeometry, boxMaterial);
-    playerModel.castShadow = true;
-    
-    // Create a simple bullet model
-    const bulletGeometry = new THREE.SphereGeometry(0.5, 8, 8);
-    const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    bulletModel = new THREE.Mesh(bulletGeometry, bulletMaterial);
-    
-    // Since we're not loading any external assets yet, manually trigger the loading complete
-    // This ensures the loading screen disappears even without external assets
+    // Force completion after a timeout to ensure the game proceeds
+    // This ensures the loading screen disappears even if there are issues
     setTimeout(() => {
-        console.log('Completing asset loading process');
+        console.log('Forcing completion of asset loading process');
         loadingScreen.style.display = 'none';
         joinScreen.style.display = 'flex';
-    }, 1000);
+    }, 2000);
 }
 
 // Handle window resize

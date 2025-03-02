@@ -344,7 +344,10 @@ io.on('connection', (socket) => {
     
     // Randomize position within the safe zone
     const angle = Math.random() * Math.PI * 2;
-    const distance = Math.random() * mapRadius * 0.8;
+    // Use a square root distribution for more uniform coverage across the circle
+    const distanceFactor = Math.sqrt(Math.random());
+    // Limit to 80% of the current safe zone radius to ensure players aren't too close to the edge
+    const distance = distanceFactor * mapRadius * 0.8;
     
     players[socket.id] = {
       id: socket.id,
@@ -357,6 +360,8 @@ io.on('connection', (socket) => {
       ammo: 30,
       score: 0
     };
+    
+    console.log(`Player ${name} joined at position (${players[socket.id].x.toFixed(2)}, ${players[socket.id].y.toFixed(2)})`);
     
     // Send initial game state to the new player
     socket.emit('gameState', { 

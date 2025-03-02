@@ -394,6 +394,12 @@ function toggleCameraMode() {
         y: gameState.mapSize.height / 2
     };
     
+    // Add a smooth transition effect
+    const transitionDuration = 300; // milliseconds
+    const startTime = performance.now();
+    const startCameraPos = camera.position.clone();
+    const startCameraRot = camera.rotation.clone();
+    
     if (cameraMode === 'FPP') {
         // Switching from FPP to TPP
         cameraMode = 'TPP';
@@ -414,19 +420,36 @@ function toggleCameraMode() {
                 playerMesh.position.z
             );
             
-            // Position camera behind player based on player's rotation
+            // Calculate end position for camera transition
             const distance = 10;
             const height = 5;
             const angle = playerMesh.rotation.y;
             
-            camera.position.set(
+            const endPos = new THREE.Vector3(
                 playerMesh.position.x - Math.sin(angle) * distance,
                 playerMesh.position.y + height,
                 playerMesh.position.z - Math.cos(angle) * distance
             );
             
-            // Update orbit controls
-            orbitControls.update();
+            // Animate the transition
+            const animateToTPP = function(timestamp) {
+                const elapsed = timestamp - startTime;
+                const progress = Math.min(elapsed / transitionDuration, 1);
+                
+                // Use easeOutQuad for smoother transition
+                const easeProgress = 1 - (1 - progress) * (1 - progress);
+                
+                camera.position.lerpVectors(startCameraPos, endPos, easeProgress);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animateToTPP);
+                } else {
+                    // Update orbit controls once transition is complete
+                    orbitControls.update();
+                }
+            };
+            
+            requestAnimationFrame(animateToTPP);
         }
         
         console.log('Switched to TPP mode');
@@ -439,14 +462,14 @@ function toggleCameraMode() {
             orbitControls.enabled = false;
         }
         
-        // Position camera at player's eye level
-        camera.position.set(
+        // Calculate end position for camera transition
+        const endPos = new THREE.Vector3(
             playerMesh.position.x,
             playerMesh.position.y + 3, // Eye level
             playerMesh.position.z
         );
         
-        // Make camera look in the direction the player is facing
+        // Calculate end rotation for camera transition
         const lookDirection = new THREE.Vector3(
             -Math.sin(playerMesh.rotation.y),
             0,
@@ -454,15 +477,41 @@ function toggleCameraMode() {
         );
         
         const targetPosition = new THREE.Vector3(
-            camera.position.x + lookDirection.x,
-            camera.position.y,
-            camera.position.z + lookDirection.z
+            endPos.x + lookDirection.x,
+            endPos.y,
+            endPos.z + lookDirection.z
         );
         
-        camera.lookAt(targetPosition);
+        // Create a temporary camera to get the target rotation
+        const tempCamera = camera.clone();
+        tempCamera.position.copy(endPos);
+        tempCamera.lookAt(targetPosition);
+        const endRot = tempCamera.rotation.clone();
         
-        // Lock pointer for FPP controls
-        controls.lock();
+        // Animate the transition
+        const animateToFPP = function(timestamp) {
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / transitionDuration, 1);
+            
+            // Use easeOutQuad for smoother transition
+            const easeProgress = 1 - (1 - progress) * (1 - progress);
+            
+            camera.position.lerpVectors(startCameraPos, endPos, easeProgress);
+            
+            // Interpolate rotation
+            camera.rotation.x = startCameraRot.x + (endRot.x - startCameraRot.x) * easeProgress;
+            camera.rotation.y = startCameraRot.y + (endRot.y - startCameraRot.y) * easeProgress;
+            camera.rotation.z = startCameraRot.z + (endRot.z - startCameraRot.z) * easeProgress;
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateToFPP);
+            } else {
+                // Lock pointer for FPP controls once transition is complete
+                controls.lock();
+            }
+        };
+        
+        requestAnimationFrame(animateToFPP);
         
         console.log('Switched to FPP mode');
     }
@@ -689,7 +738,9 @@ function handleMovement(deltaTime) {
     }
     
     const player = gameState.players[playerId];
-    const speed = 0.5 * (deltaTime / 16.67); // Normalize speed based on frame time
+    // Normalize speed based on frame time for consistent movement regardless of frame rate
+    // Increased base speed slightly for better responsiveness
+    const speed = 0.6 * (deltaTime / 16.67); 
     let moveForward = 0;
     let moveBackward = 0;
     let moveLeft = 0;
@@ -777,10 +828,11 @@ function handleMovement(deltaTime) {
         moveDirection.normalize();
     }
     
-    // Apply movement
+    // Store previous position for interpolation
     const oldX = player.x;
     const oldY = player.y;
     
+    // Apply movement
     player.x += moveDirection.x * speed;
     player.y += moveDirection.z * speed; // Note: player.y is actually Z in 3D space
     
@@ -811,7 +863,9 @@ function handleMovement(deltaTime) {
             y: gameState.mapSize.height / 2
         };
         
-        playerMesh.position.set(player.x - mapCenter.x, playerMesh.position.y, player.y - mapCenter.y);
+        // Apply smooth position update
+        playerMesh.position.x = player.x - mapCenter.x;
+        playerMesh.position.z = player.y - mapCenter.y;
         
         // Rotate player mesh to face the direction of movement if moving
         if (moveDirection.length() > 0) {
@@ -827,7 +881,7 @@ function handleMovement(deltaTime) {
             while (rotationDiff < -Math.PI) rotationDiff += Math.PI * 2;
             
             // Apply smooth rotation with increased speed for more responsive turning
-            playerMesh.rotation.y += rotationDiff * 0.2; // Increased from 0.15 for faster rotation
+            playerMesh.rotation.y += rotationDiff * 0.25; // Increased from 0.2 for faster rotation
         }
         
         // Update camera position based on camera mode
@@ -855,10 +909,14 @@ function updateCameraPosition(playerMesh, moveDirection) {
     
     if (cameraMode === 'FPP') {
         // In FPP, camera is at player's eye level
-        camera.position.set(
-            playerMesh.position.x,
-            playerMesh.position.y + 3, // Eye level
-            playerMesh.position.z
+        // Use lerp for smoother camera movement in FPP mode
+        camera.position.lerp(
+            new THREE.Vector3(
+                playerMesh.position.x,
+                playerMesh.position.y + 3, // Eye level
+                playerMesh.position.z
+            ),
+            0.3 // Smoothing factor - higher value for more responsive camera
         );
         
         // Ensure camera rotation matches player rotation in FPP mode
@@ -892,19 +950,25 @@ function updateCameraPosition(playerMesh, moveDirection) {
             rotationMatrix.makeRotationY(playerMesh.rotation.y);
             cameraOffset.applyMatrix4(rotationMatrix);
             
-            // Position camera behind player
-            camera.position.set(
-                playerMesh.position.x - cameraOffset.x,
-                playerMesh.position.y + cameraOffset.y,
-                playerMesh.position.z - cameraOffset.z
+            // Position camera behind player with smooth transition
+            camera.position.lerp(
+                new THREE.Vector3(
+                    playerMesh.position.x - cameraOffset.x,
+                    playerMesh.position.y + cameraOffset.y,
+                    playerMesh.position.z - cameraOffset.z
+                ),
+                0.15 // Smoothing factor - lower for smoother camera following
             );
             
             // Make camera look at player
-            camera.lookAt(
+            const targetPosition = new THREE.Vector3(
                 playerMesh.position.x,
                 playerMesh.position.y + 2, // Look at player's head
                 playerMesh.position.z
             );
+            
+            // Use lookAt for immediate direction change
+            camera.lookAt(targetPosition);
         }
         
         // Update orbit controls target to follow player

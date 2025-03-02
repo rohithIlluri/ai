@@ -51,6 +51,11 @@ let playerName = '';
 let keys = {};
 let mousePosition = { x: 0, y: 0 };
 let camera = { x: 0, y: 0 };
+let lastUpdateTime = 0;
+let movementSmoothing = { x: 0, y: 0 }; // For smoother movement
+let canShoot = true; // Shooting cooldown flag
+let lastShootTime = 0; // Last time player shot
+const SHOOT_COOLDOWN = 250; // Cooldown in milliseconds
 
 // Set canvas size
 function resizeCanvas() {
@@ -82,9 +87,20 @@ function init() {
         joinScreen.style.display = 'flex';
     });
     
-    // Keyboard controls
+    // Keyboard controls - improved for cross-platform compatibility
     window.addEventListener('keydown', (e) => {
-        keys[e.key.toLowerCase()] = true;
+        const key = e.key.toLowerCase();
+        keys[key] = true;
+        
+        // Prevent scrolling with arrow keys
+        if(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+            e.preventDefault();
+        }
+        
+        // Space bar for shooting
+        if (key === ' ') {
+            shoot();
+        }
     });
     
     window.addEventListener('keyup', (e) => {
@@ -97,14 +113,38 @@ function init() {
         mousePosition.y = e.clientY;
     });
     
+    // Touch controls for mobile
+    gameCanvas.addEventListener('touchstart', handleTouch);
+    gameCanvas.addEventListener('touchmove', handleTouch);
+    
+    // Mouse click for shooting
     gameCanvas.addEventListener('mousedown', (e) => {
         if (e.button === 0) { // Left click
             shoot();
         }
     });
     
-    // Game loop
-    setInterval(gameLoop, 1000 / 60);
+    // Game loop with timestamp for smoother animation
+    lastUpdateTime = performance.now();
+    requestAnimationFrame(gameLoop);
+}
+
+// Handle touch events for mobile
+function handleTouch(e) {
+    e.preventDefault(); // Prevent scrolling
+    
+    // Get the touch position
+    if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        const rect = gameCanvas.getBoundingClientRect();
+        mousePosition.x = touch.clientX - rect.left;
+        mousePosition.y = touch.clientY - rect.top;
+        
+        // If this is a touch start event, also shoot
+        if (e.type === 'touchstart') {
+            shoot();
+        }
+    }
 }
 
 // Join the game
@@ -115,18 +155,19 @@ function joinGame() {
 }
 
 // Handle player movement
-function handleMovement() {
+function handleMovement(deltaTime) {
     if (!playerId || !gameState.players[playerId]) return;
     
     const player = gameState.players[playerId];
-    const speed = 5;
+    const speed = 5 * (deltaTime / 16.67); // Normalize speed based on frame time (60 FPS baseline)
     let dx = 0;
     let dy = 0;
     
-    if (keys['w'] || keys['arrowup']) dy -= speed;
-    if (keys['s'] || keys['arrowdown']) dy += speed;
-    if (keys['a'] || keys['arrowleft']) dx -= speed;
-    if (keys['d'] || keys['arrowright']) dx += speed;
+    // Check for WASD and arrow keys
+    if (keys['w'] || keys['arrowup']) dy -= 1;
+    if (keys['s'] || keys['arrowdown']) dy += 1;
+    if (keys['a'] || keys['arrowleft']) dx -= 1;
+    if (keys['d'] || keys['arrowright']) dx += 1;
     
     // Normalize diagonal movement
     if (dx !== 0 && dy !== 0) {
@@ -135,9 +176,18 @@ function handleMovement() {
         dy *= factor;
     }
     
-    // Update player position
-    player.x += dx;
-    player.y += dy;
+    // Apply speed
+    dx *= speed;
+    dy *= speed;
+    
+    // Apply movement smoothing
+    const smoothFactor = 0.8;
+    movementSmoothing.x = movementSmoothing.x * smoothFactor + dx * (1 - smoothFactor);
+    movementSmoothing.y = movementSmoothing.y * smoothFactor + dy * (1 - smoothFactor);
+    
+    // Update player position with smoothed values
+    player.x += movementSmoothing.x;
+    player.y += movementSmoothing.y;
     
     // Keep player within the map bounds
     const mapCenter = {
@@ -159,12 +209,16 @@ function handleMovement() {
         player.y = mapCenter.y + Math.sin(angle) * maxDistance;
     }
     
-    // Send position to server
-    socket.emit('move', { x: player.x, y: player.y });
+    // Send position to server (throttled to reduce network traffic)
+    if (Math.abs(movementSmoothing.x) > 0.01 || Math.abs(movementSmoothing.y) > 0.01) {
+        socket.emit('move', { x: player.x, y: player.y });
+    }
     
-    // Update camera position
-    camera.x = player.x - gameCanvas.width / 2;
-    camera.y = player.y - gameCanvas.height / 2;
+    // Update camera position with smoothing
+    const targetCameraX = player.x - gameCanvas.width / 2;
+    const targetCameraY = player.y - gameCanvas.height / 2;
+    camera.x = camera.x * 0.9 + targetCameraX * 0.1;
+    camera.y = camera.y * 0.9 + targetCameraY * 0.1;
     
     // Check for power-up collection
     gameState.powerUps.forEach(powerUp => {
@@ -183,6 +237,24 @@ function shoot() {
     if (!playerId || !gameState.players[playerId]) return;
     
     const player = gameState.players[playerId];
+    const currentTime = performance.now();
+    
+    // Check if player has ammo and cooldown has passed
+    if (player.ammo <= 0) {
+        // Visual feedback for no ammo
+        ammoCount.style.color = 'red';
+        setTimeout(() => { ammoCount.style.color = 'white'; }, 300);
+        return;
+    }
+    
+    if (!canShoot || currentTime - lastShootTime < SHOOT_COOLDOWN) {
+        return;
+    }
+    
+    // Set cooldown
+    canShoot = false;
+    lastShootTime = currentTime;
+    setTimeout(() => { canShoot = true; }, SHOOT_COOLDOWN);
     
     // Calculate direction
     const worldMouseX = mousePosition.x + camera.x;
@@ -191,6 +263,9 @@ function shoot() {
     const dx = worldMouseX - player.x;
     const dy = worldMouseY - player.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Prevent division by zero
+    if (distance === 0) return;
     
     // Normalize direction
     const velocityX = dx / distance * 10; // Bullet speed
@@ -203,6 +278,15 @@ function shoot() {
         velocityX: velocityX,
         velocityY: velocityY
     });
+    
+    // Visual feedback for shooting
+    const recoilAmount = 5;
+    const recoilX = -velocityX * recoilAmount;
+    const recoilY = -velocityY * recoilAmount;
+    
+    // Apply a small camera shake for feedback
+    camera.x += recoilX * 0.2;
+    camera.y += recoilY * 0.2;
 }
 
 // Draw the game
@@ -494,11 +578,18 @@ function updateUI() {
 }
 
 // Game loop
-function gameLoop() {
+function gameLoop(timestamp) {
+    // Calculate delta time for smooth animation
+    const deltaTime = timestamp - lastUpdateTime;
+    lastUpdateTime = timestamp;
+    
     if (playerId && gameState.players[playerId]) {
-        handleMovement();
+        handleMovement(deltaTime);
     }
     draw();
+    
+    // Use requestAnimationFrame for smoother animation
+    requestAnimationFrame(gameLoop);
 }
 
 // Socket.IO event handlers

@@ -172,17 +172,91 @@
             border: 2px solid white;
             border-radius: 5px;
             z-index: 10;
+            cursor: pointer; /* Add cursor pointer to indicate it's clickable */
+        }
+        
+        /* Map view screen */
+        #mapViewScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 90;
+        }
+        
+        #fullMapCanvas {
+            width: 80vw;
+            height: 80vh;
+            border: 2px solid #3498db;
+            border-radius: 5px;
+            box-shadow: 0 0 20px rgba(52, 152, 219, 0.5);
+        }
+        
+        #closeMapViewButton {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+            z-index: 95; /* Ensure button is above other map elements */
+        }
+        
+        #closeMapViewButton:hover {
+            background-color: #c0392b;
+            transform: scale(1.05);
+        }
+        
+        #closeMapViewButton:active {
+            transform: scale(0.95);
+        }
+        
+        #mapTitle {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 28px;
+            color: white;
+            text-shadow: 0 0 10px rgba(52, 152, 219, 0.8);
         }
         
         .controls-info {
             position: absolute;
             bottom: 20px;
             left: 20px;
-            background-color: rgba(0, 0, 0, 0.5);
-            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
             border-radius: 5px;
-            font-size: 14px;
+            font-size: 16px;
             z-index: 10;
+            border: 1px solid #3498db;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+        }
+        
+        .controls-info p {
+            margin: 5px 0;
+            font-weight: bold;
+        }
+        
+        .controls-info .key {
+            background-color: #3498db;
+            padding: 2px 8px;
+            border-radius: 3px;
+            margin-right: 5px;
+            font-weight: bold;
         }
         
         /* Virtual joystick for mobile and Windows users */
@@ -284,6 +358,21 @@
             left: 50%;
             transform: translateX(-50%);
         }
+        
+        /* Map key hint on minimap */
+        #mapKeyHint {
+            position: absolute;
+            bottom: 180px;
+            right: 20px;
+            background-color: rgba(52, 152, 219, 0.8);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 10;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -297,6 +386,7 @@
         </div>
         
         <canvas id="minimap"></canvas>
+        <div id="mapKeyHint">Press <span class="key">M</span> for Map</div>
         <div id="crosshair"></div>
         
         <div id="joinScreen">
@@ -322,15 +412,25 @@
             </div>
         </div>
         
+        <!-- Map View Screen -->
+        <div id="mapViewScreen">
+            <div id="mapTitle">Battle Royale Map</div>
+            <canvas id="fullMapCanvas" width="800" height="800"></canvas>
+            <button id="closeMapViewButton">Close Map</button>
+        </div>
+        
         <div id="joystickContainer">
             <div id="joystickBase"></div>
             <div id="joystickHandle"></div>
-        </div>
-        
+    </div>
+    
         <div class="controls-info">
-            <p>WASD or Arrow Keys: Move</p>
+            <p><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> or Arrow Keys: Move</p>
             <p>Mouse: Aim</p>
-            <p>Left Click or Space: Shoot</p>
+            <p><span class="key">Left Click</span> or <span class="key">Space</span>: Shoot</p>
+            <p><span class="key">V</span>: Toggle Camera Mode (TPP/FPS)</p>
+            <p><span class="key">M</span>: View Full Map</p>
+            <p>Click Minimap: View Full Map</p>
         </div>
     </div>
     
@@ -338,11 +438,113 @@
     <script src="/socket.io/socket.io.js"></script>
     
     <!-- Three.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.162.0/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three-pointer-lock-controls@1.0.0/dist/three-pointer-lock-controls.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three-gltf-loader@1.111.0/dist/three-gltf-loader.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
     
-    <!-- Game Script -->
+    <!-- Load Three.js before game.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Add PointerLockControls from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    
+    <!-- Add script to ensure THREE is properly initialized -->
+    <script>
+        // Check if THREE is defined correctly
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof THREE !== 'undefined') {
+                console.log('THREE is properly loaded');
+                
+                // Make PointerLockControls available globally as a proper constructor
+                THREE.PointerLockControls = class PointerLockControls {
+                    constructor(camera, domElement) {
+                        this.camera = camera;
+                        this.domElement = domElement || document.body;
+                        this.isLocked = false;
+                        
+                        // Store initial camera position
+                        this.initialCameraY = camera.position.y;
+                        
+                        // Create object to properly track mouse movement
+                        this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
+                        
+                        // Method to update camera rotation
+                        this.onMouseMove = (event) => {
+                            if (!this.isLocked) return;
+                            
+                            const movementX = event.movementX || 0;
+                            const movementY = event.movementY || 0;
+                            
+                            // Apply rotation to euler object
+                            this.euler.setFromQuaternion(camera.quaternion);
+                            this.euler.y -= movementX * 0.002;
+                            this.euler.x -= movementY * 0.002;
+                            
+                            // Clamp vertical rotation to avoid flipping
+                            this.euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.euler.x));
+                            
+                            // Apply updated rotation to camera
+                            camera.quaternion.setFromEuler(this.euler);
+                        };
+                        
+                        // Bind methods to this instance to avoid context issues
+                        this._onPointerlockChange = this.onPointerlockChange.bind(this);
+                        this._onPointerlockError = this.onPointerlockError.bind(this);
+                        
+                        // Add event listeners
+                        document.addEventListener('pointerlockchange', this._onPointerlockChange, false);
+                        document.addEventListener('pointerlockerror', this._onPointerlockError, false);
+                    }
+                    
+                    // Method to lock pointer
+                    lock() {
+                        try {
+                            this.domElement.requestPointerLock();
+                        } catch (e) {
+                            console.error("Error requesting pointer lock:", e);
+                        }
+                    }
+                    
+                    // Method to unlock pointer
+                    unlock() {
+                        try {
+                            document.exitPointerLock();
+                        } catch (e) {
+                            console.error("Error exiting pointer lock:", e);
+                        }
+                    }
+                    
+                    // Event handler for pointer lock changes
+                    onPointerlockChange() {
+                        this.isLocked = document.pointerLockElement === this.domElement;
+                        console.log("PointerLockControls: Lock changed to", this.isLocked);
+                        
+                        if (this.isLocked) {
+                            document.addEventListener('mousemove', this.onMouseMove, false);
+                        } else {
+                            document.removeEventListener('mousemove', this.onMouseMove, false);
+                        }
+                    }
+                    
+                    // Event handler for pointer lock errors
+                    onPointerlockError() {
+                        console.error('Pointer lock error');
+                    }
+                    
+                    // Clean up method
+                    dispose() {
+                        document.removeEventListener('pointerlockchange', this._onPointerlockChange, false);
+                        document.removeEventListener('pointerlockerror', this._onPointerlockError, false);
+                        document.removeEventListener('mousemove', this.onMouseMove, false);
+                    }
+                };
+                
+                console.log('PointerLockControls defined as:', typeof THREE.PointerLockControls);
+            } else {
+                console.error('THREE is not defined! This will cause problems in the game.');
+            }
+        });
+    </script>
+    
+    <!-- Load game.js after Three.js is initialized -->
     <script src="game.js"></script>
 </body>
 </html> 

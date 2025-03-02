@@ -88,6 +88,8 @@ if (isWindowsOS) {
 
 // Initialize the game
 function init() {
+    console.log('Game initialization started');
+    
     // Show loading screen
     loadingScreen.style.display = 'flex';
     
@@ -179,6 +181,8 @@ function init() {
     // Game loop with timestamp for smoother animation
     lastUpdateTime = performance.now();
     requestAnimationFrame(gameLoop);
+    
+    console.log('Game initialization completed');
 }
 
 // Initialize Three.js
@@ -199,11 +203,18 @@ function initThreeJS() {
     gameContainer.appendChild(renderer.domElement);
     
     // Create pointer lock controls
-    controls = new PointerLockControls(camera, document.body);
+    controls = new PointerLockControls(camera, renderer.domElement);
     
     // Add event listener for pointer lock changes
     document.addEventListener('pointerlockchange', () => {
-        isPointerLocked = document.pointerLockElement === document.body;
+        isPointerLocked = document.pointerLockElement === renderer.domElement;
+        console.log('Pointer lock state changed:', isPointerLocked);
+    });
+    
+    // Add event listener for pointer lock errors
+    document.addEventListener('pointerlockerror', (event) => {
+        console.error('Pointer lock error:', event);
+        alert('Could not lock pointer. Please try again or check browser permissions.');
     });
     
     // Add lighting
@@ -286,17 +297,18 @@ function loadAssets() {
     loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
         const progress = (itemsLoaded / itemsTotal) * 100;
         loadingProgress.style.width = `${progress}%`;
+        console.log(`Loading progress: ${progress.toFixed(0)}%`);
     };
     
     loadingManager.onLoad = () => {
         // Hide loading screen when all assets are loaded
+        console.log('All assets loaded successfully');
         loadingScreen.style.display = 'none';
         joinScreen.style.display = 'flex';
     };
     
     // Load player model
     // For now, we'll use a simple box as the player model
-    // In a real game, you'd load a GLTF model here
     const boxGeometry = new THREE.BoxGeometry(2, 4, 2);
     const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
     playerModel = new THREE.Mesh(boxGeometry, boxMaterial);
@@ -306,6 +318,14 @@ function loadAssets() {
     const bulletGeometry = new THREE.SphereGeometry(0.5, 8, 8);
     const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     bulletModel = new THREE.Mesh(bulletGeometry, bulletMaterial);
+    
+    // Since we're not loading any external assets yet, manually trigger the loading complete
+    // This ensures the loading screen disappears even without external assets
+    setTimeout(() => {
+        console.log('Completing asset loading process');
+        loadingScreen.style.display = 'none';
+        joinScreen.style.display = 'flex';
+    }, 1000);
 }
 
 // Handle window resize
@@ -321,12 +341,15 @@ function joinGame() {
     socket.emit('join', playerName);
     joinScreen.style.display = 'none';
     
+    console.log('Attempting to lock pointer');
+    
     // Lock pointer for FPS controls
     controls.lock();
     
     // Listen for pointer lock events
-    document.addEventListener('click', () => {
+    renderer.domElement.addEventListener('click', () => {
         if (!isPointerLocked) {
+            console.log('Clicked on game, attempting to lock pointer');
             controls.lock();
         }
     });
@@ -450,7 +473,7 @@ function handleMovement(deltaTime) {
 
 // Shoot function
 function shoot() {
-    if (!playerId || !gameState.players[playerId] || !isPointerLocked) return;
+    if (!playerId || !gameState.players[playerId]) return;
     
     const player = gameState.players[playerId];
     const currentTime = performance.now();

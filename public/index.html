@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battle Royale</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background-color: #222;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        #healthBar {
+            width: 200px;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+        
+        #healthFill {
+            height: 100%;
+            background-color: #2ecc71;
+            width: 100%;
+            transition: width 0.3s;
+        }
+        
+        #ammoCount {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        
+        #playerCount {
+            font-size: 16px;
+        }
+        
+        #joinScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        #joinScreen h1 {
+            color: #f39c12;
+            font-size: 48px;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(243, 156, 18, 0.5);
+        }
+        
+        #nameInput {
+            padding: 10px 15px;
+            font-size: 18px;
+            border: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            width: 300px;
+            text-align: center;
+        }
+        
+        #joinButton {
+            padding: 12px 30px;
+            font-size: 20px;
+            background-color: #f39c12;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        #joinButton:hover {
+            background-color: #e67e22;
+        }
+        
+        #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        #gameOverScreen h2 {
+            color: #e74c3c;
+            font-size: 48px;
+            margin-bottom: 30px;
+        }
+        
+        #restartButton {
+            padding: 12px 30px;
+            font-size: 20px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        #restartButton:hover {
+            background-color: #c0392b;
+        }
+        
+        #winnerScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        #winnerScreen h2 {
+            color: #f1c40f;
+            font-size: 48px;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(241, 196, 15, 0.5);
+        }
+        
+        #minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 150px;
+            height: 150px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border: 2px solid white;
+            border-radius: 5px;
+            z-index: 10;
+        }
+        
+        .controls-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui">
+            <div id="healthBar">
+                <div id="healthFill"></div>
+            </div>
+            <div id="ammoCount">Ammo: 30</div>
+            <div id="playerCount">Players: 0</div>
+        </div>
+        
+        <canvas id="minimap"></canvas>
+        
+        <div class="controls-info">
+            <p>WASD: Move | Mouse: Aim | Click: Shoot</p>
+        </div>
+    </div>
+    
+    <div id="joinScreen">
+        <h1>BATTLE ROYALE</h1>
+        <input type="text" id="nameInput" placeholder="Enter your name" maxlength="15">
+        <button id="joinButton">JOIN BATTLE</button>
+    </div>
+    
+    <div id="gameOverScreen">
+        <h2>GAME OVER</h2>
+        <button id="restartButton">PLAY AGAIN</button>
+    </div>
+    
+    <div id="winnerScreen">
+        <h2>VICTORY ROYALE!</h2>
+        <button id="winRestartButton">PLAY AGAIN</button>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html> 

@@ -7,4 +7,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-    plan: free 
+      - key: PORT
+        value: 3000
+    plan: free
+    autoDeploy: true 

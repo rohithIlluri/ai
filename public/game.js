@@ -199,11 +199,11 @@ function initThreeJS() {
     gameContainer.appendChild(renderer.domElement);
     
     // Create pointer lock controls
-    controls = new THREE.PointerLockControls(camera, document.body);
+    controls = new PointerLockControls(camera, document.body);
     
     // Add event listener for pointer lock changes
     document.addEventListener('pointerlockchange', () => {
-        isPointerLocked = document.pointerLockState === 'locked';
+        isPointerLocked = document.pointerLockElement === document.body;
     });
     
     // Add lighting
@@ -295,8 +295,6 @@ function loadAssets() {
     };
     
     // Load player model
-    const gltfLoader = new THREE.GLTFLoader(loadingManager);
-    
     // For now, we'll use a simple box as the player model
     // In a real game, you'd load a GLTF model here
     const boxGeometry = new THREE.BoxGeometry(2, 4, 2);

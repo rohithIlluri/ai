@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Battle Royale</title>
+    <title>Battle Royale 3D</title>
     <style>
         body {
             margin: 0;
@@ -184,12 +184,110 @@
             font-size: 14px;
             z-index: 10;
         }
+        
+        /* Virtual joystick for mobile and Windows users */
+        #joystickContainer {
+            position: absolute;
+            bottom: 100px;
+            left: 100px;
+            width: 150px;
+            height: 150px;
+            z-index: 20;
+            display: none; /* Hidden by default, shown for Windows/mobile */
+        }
+        
+        #joystickBase {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+        }
+        
+        #joystickHandle {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background-color: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        /* Loading screen for 3D assets */
+        #loadingScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #111;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+        
+        #loadingScreen h2 {
+            color: #f39c12;
+            margin-bottom: 20px;
+        }
+        
+        #loadingBar {
+            width: 300px;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        #loadingProgress {
+            height: 100%;
+            width: 0%;
+            background-color: #f39c12;
+            transition: width 0.3s;
+        }
+        
+        /* Crosshair */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+            z-index: 15;
+        }
+        
+        #crosshair::before,
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            background-color: white;
+        }
+        
+        #crosshair::before {
+            width: 100%;
+            height: 2px;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+        }
+        
+        #crosshair::after {
+            width: 2px;
+            height: 100%;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
     </style>
 </head>
 <body>
     <div id="gameContainer">
-        <canvas id="gameCanvas"></canvas>
-        
         <div id="ui">
             <div id="healthBar">
                 <div id="healthFill"></div>
@@ -199,29 +297,52 @@
         </div>
         
         <canvas id="minimap"></canvas>
+        <div id="crosshair"></div>
+        
+        <div id="joinScreen">
+            <h1>Battle Royale 3D</h1>
+            <input type="text" id="nameInput" placeholder="Enter your name" maxlength="15">
+            <button id="joinButton">Join Game</button>
+        </div>
+        
+        <div id="gameOverScreen">
+            <h2>Game Over</h2>
+            <button id="restartButton">Play Again</button>
+        </div>
+        
+        <div id="winnerScreen">
+            <h2>Victory Royale!</h2>
+            <button id="winRestartButton">Play Again</button>
+        </div>
+        
+        <div id="loadingScreen">
+            <h2>Loading Game Assets</h2>
+            <div id="loadingBar">
+                <div id="loadingProgress"></div>
+            </div>
+        </div>
+        
+        <div id="joystickContainer">
+            <div id="joystickBase"></div>
+            <div id="joystickHandle"></div>
+        </div>
         
         <div class="controls-info">
-            <p>WASD: Move | Mouse: Aim | Click: Shoot</p>
+            <p>WASD or Arrow Keys: Move</p>
+            <p>Mouse: Aim</p>
+            <p>Left Click or Space: Shoot</p>
         </div>
     </div>
     
-    <div id="joinScreen">
-        <h1>BATTLE ROYALE</h1>
-        <input type="text" id="nameInput" placeholder="Enter your name" maxlength="15">
-        <button id="joinButton">JOIN BATTLE</button>
-    </div>
-    
-    <div id="gameOverScreen">
-        <h2>GAME OVER</h2>
-        <button id="restartButton">PLAY AGAIN</button>
-    </div>
-    
-    <div id="winnerScreen">
-        <h2>VICTORY ROYALE!</h2>
-        <button id="winRestartButton">PLAY AGAIN</button>
-    </div>
-    
+    <!-- Socket.IO -->
     <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.162.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.162.0/examples/js/loaders/GLTFLoader.js"></script>
+    
+    <!-- Game Script -->
     <script src="game.js"></script>
 </body>
 </html> 

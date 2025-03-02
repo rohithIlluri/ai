@@ -23,8 +23,7 @@ socket.on('disconnect', (reason) => {
 });
 
 // Game elements
-const gameCanvas = document.getElementById('gameCanvas');
-const ctx = gameCanvas.getContext('2d');
+const gameContainer = document.getElementById('gameContainer');
 const minimapCanvas = document.getElementById('minimap');
 const minimapCtx = minimapCanvas.getContext('2d');
 const joinScreen = document.getElementById('joinScreen');
@@ -37,6 +36,17 @@ const winRestartButton = document.getElementById('winRestartButton');
 const healthFill = document.getElementById('healthFill');
 const ammoCount = document.getElementById('ammoCount');
 const playerCount = document.getElementById('playerCount');
+const loadingScreen = document.getElementById('loadingScreen');
+const loadingProgress = document.getElementById('loadingProgress');
+
+// Three.js setup
+let scene, camera, renderer, controls;
+let playerMeshes = {}; // Store player 3D objects
+let bulletMeshes = []; // Store bullet 3D objects
+let powerUpMeshes = []; // Store power-up 3D objects
+let terrainMesh; // Store terrain mesh
+let skybox; // Store skybox
+let playerModel; // Player model template
 
 // Game state
 let gameState = {
@@ -51,14 +61,17 @@ let playerName = '';
 let keys = {};
 let keyCodes = {}; // Track key codes separately for Windows compatibility
 let mousePosition = { x: 0, y: 0 };
-let camera = { x: 0, y: 0 };
 let lastUpdateTime = 0;
-let movementSmoothing = { x: 0, y: 0 }; // For smoother movement
 let canShoot = true; // Shooting cooldown flag
 let lastShootTime = 0; // Last time player shot
 const SHOOT_COOLDOWN = 250; // Cooldown in milliseconds
 let isWindowsOS = navigator.userAgent.indexOf('Windows') !== -1;
 let debugInfo = document.createElement('div');
+let isPointerLocked = false;
+
+// Asset loading tracking
+let assetsToLoad = 0;
+let assetsLoaded = 0;
 
 // Add debug info for troubleshooting
 if (isWindowsOS) {
@@ -73,18 +86,16 @@ if (isWindowsOS) {
     document.body.appendChild(debugInfo);
 }
 
-// Set canvas size
-function resizeCanvas() {
-    gameCanvas.width = window.innerWidth;
-    gameCanvas.height = window.innerHeight;
-    minimapCanvas.width = 150;
-    minimapCanvas.height = 150;
-}
-
 // Initialize the game
 function init() {
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    // Show loading screen
+    loadingScreen.style.display = 'flex';
+    
+    // Initialize Three.js
+    initThreeJS();
+    
+    // Load game assets
+    loadAssets();
     
     // Join game when button is clicked
     joinButton.addEventListener('click', joinGame);
@@ -103,7 +114,7 @@ function init() {
         joinScreen.style.display = 'flex';
     });
     
-    // Keyboard controls - completely revamped for cross-platform compatibility
+    // Keyboard controls
     window.addEventListener('keydown', (e) => {
         // Log key events for debugging on Windows
         if (isWindowsOS) {
@@ -155,44 +166,155 @@ function init() {
         }
     });
     
-    // Mouse controls
-    gameCanvas.addEventListener('mousemove', (e) => {
-        mousePosition.x = e.clientX;
-        mousePosition.y = e.clientY;
-    });
-    
-    // Touch controls for mobile
-    gameCanvas.addEventListener('touchstart', handleTouch);
-    gameCanvas.addEventListener('touchmove', handleTouch);
-    
-    // Mouse click for shooting
-    gameCanvas.addEventListener('mousedown', (e) => {
-        if (e.button === 0) { // Left click
+    // Mouse controls for shooting
+    document.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && isPointerLocked) { // Left click
             shoot();
         }
     });
+    
+    // Handle window resize
+    window.addEventListener('resize', onWindowResize);
     
     // Game loop with timestamp for smoother animation
     lastUpdateTime = performance.now();
     requestAnimationFrame(gameLoop);
 }
 
-// Handle touch events for mobile
-function handleTouch(e) {
-    e.preventDefault(); // Prevent scrolling
+// Initialize Three.js
+function initThreeJS() {
+    // Create scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB); // Sky blue background
     
-    // Get the touch position
-    if (e.touches.length > 0) {
-        const touch = e.touches[0];
-        const rect = gameCanvas.getBoundingClientRect();
-        mousePosition.x = touch.clientX - rect.left;
-        mousePosition.y = touch.clientY - rect.top;
-        
-        // If this is a touch start event, also shoot
-        if (e.type === 'touchstart') {
-            shoot();
-        }
-    }
+    // Create camera
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+    camera.position.set(0, 30, 0); // Start above ground
+    
+    // Create renderer
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    gameContainer.appendChild(renderer.domElement);
+    
+    // Create pointer lock controls
+    controls = new THREE.PointerLockControls(camera, document.body);
+    
+    // Add event listener for pointer lock changes
+    document.addEventListener('pointerlockchange', () => {
+        isPointerLocked = document.pointerLockState === 'locked';
+    });
+    
+    // Add lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(1000, 1000, 1000);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 3000;
+    directionalLight.shadow.camera.left = -1500;
+    directionalLight.shadow.camera.right = 1500;
+    directionalLight.shadow.camera.top = 1500;
+    directionalLight.shadow.camera.bottom = -1500;
+    scene.add(directionalLight);
+    
+    // Create ground
+    createTerrain();
+    
+    // Create skybox
+    createSkybox();
+}
+
+// Create terrain
+function createTerrain() {
+    // Create a large ground plane
+    const groundGeometry = new THREE.CircleGeometry(gameState.mapRadius, 64);
+    const groundMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x3a7e4f, // Green color for grass
+        roughness: 0.8,
+        metalness: 0.2
+    });
+    terrainMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+    terrainMesh.rotation.x = -Math.PI / 2; // Rotate to be flat on XZ plane
+    terrainMesh.receiveShadow = true;
+    scene.add(terrainMesh);
+    
+    // Add a grid for reference
+    const gridHelper = new THREE.GridHelper(gameState.mapRadius * 2, 20, 0x000000, 0x000000);
+    gridHelper.material.opacity = 0.2;
+    gridHelper.material.transparent = true;
+    scene.add(gridHelper);
+    
+    // Add a boundary circle to show the safe zone
+    const safeZoneGeometry = new THREE.RingGeometry(gameState.mapRadius - 5, gameState.mapRadius, 64);
+    const safeZoneMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x3498db,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.5
+    });
+    const safeZone = new THREE.Mesh(safeZoneGeometry, safeZoneMaterial);
+    safeZone.rotation.x = -Math.PI / 2;
+    safeZone.position.y = 1; // Slightly above ground to avoid z-fighting
+    scene.add(safeZone);
+}
+
+// Create skybox
+function createSkybox() {
+    const skyGeometry = new THREE.BoxGeometry(10000, 10000, 10000);
+    const skyMaterials = [
+        new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }), // Right
+        new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }), // Left
+        new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }), // Top
+        new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }), // Bottom
+        new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide }), // Front
+        new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide })  // Back
+    ];
+    skybox = new THREE.Mesh(skyGeometry, skyMaterials);
+    scene.add(skybox);
+}
+
+// Load game assets
+function loadAssets() {
+    // Track loading progress
+    const loadingManager = new THREE.LoadingManager();
+    loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+        const progress = (itemsLoaded / itemsTotal) * 100;
+        loadingProgress.style.width = `${progress}%`;
+    };
+    
+    loadingManager.onLoad = () => {
+        // Hide loading screen when all assets are loaded
+        loadingScreen.style.display = 'none';
+        joinScreen.style.display = 'flex';
+    };
+    
+    // Load player model
+    const gltfLoader = new THREE.GLTFLoader(loadingManager);
+    
+    // For now, we'll use a simple box as the player model
+    // In a real game, you'd load a GLTF model here
+    const boxGeometry = new THREE.BoxGeometry(2, 4, 2);
+    const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    playerModel = new THREE.Mesh(boxGeometry, boxMaterial);
+    playerModel.castShadow = true;
+    
+    // Create a simple bullet model
+    const bulletGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+    const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    bulletModel = new THREE.Mesh(bulletGeometry, bulletMaterial);
+}
+
+// Handle window resize
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 // Join the game
@@ -200,30 +322,40 @@ function joinGame() {
     playerName = nameInput.value.trim() || 'Player';
     socket.emit('join', playerName);
     joinScreen.style.display = 'none';
+    
+    // Lock pointer for FPS controls
+    controls.lock();
+    
+    // Listen for pointer lock events
+    document.addEventListener('click', () => {
+        if (!isPointerLocked) {
+            controls.lock();
+        }
+    });
 }
 
 // Handle player movement
 function handleMovement(deltaTime) {
-    if (!playerId || !gameState.players[playerId]) return;
+    if (!playerId || !gameState.players[playerId] || !isPointerLocked) return;
     
     const player = gameState.players[playerId];
-    const speed = 5 * (deltaTime / 16.67); // Normalize speed based on frame time (60 FPS baseline)
-    let dx = 0;
-    let dy = 0;
+    const speed = 0.5 * (deltaTime / 16.67); // Normalize speed based on frame time
+    let moveForward = 0;
+    let moveRight = 0;
     
     // Multi-layered movement detection for maximum compatibility
     // First check keyCodes (most reliable for Windows)
-    if (keyCodes['ArrowUp'] || keyCodes['KeyW'] || keyCodes[87] || keyCodes[38]) dy -= 1;
-    if (keyCodes['ArrowDown'] || keyCodes['KeyS'] || keyCodes[83] || keyCodes[40]) dy += 1;
-    if (keyCodes['ArrowLeft'] || keyCodes['KeyA'] || keyCodes[65] || keyCodes[37]) dx -= 1;
-    if (keyCodes['ArrowRight'] || keyCodes['KeyD'] || keyCodes[68] || keyCodes[39]) dx += 1;
+    if (keyCodes['ArrowUp'] || keyCodes['KeyW'] || keyCodes[87] || keyCodes[38]) moveForward = 1;
+    if (keyCodes['ArrowDown'] || keyCodes['KeyS'] || keyCodes[83] || keyCodes[40]) moveForward = -1;
+    if (keyCodes['ArrowLeft'] || keyCodes['KeyA'] || keyCodes[65] || keyCodes[37]) moveRight = -1;
+    if (keyCodes['ArrowRight'] || keyCodes['KeyD'] || keyCodes[68] || keyCodes[39]) moveRight = 1;
     
     // Then check keys as fallback
-    if (dx === 0 && dy === 0) {
-        if (keys['w'] || keys['arrowup']) dy -= 1;
-        if (keys['s'] || keys['arrowdown']) dy += 1;
-        if (keys['a'] || keys['arrowleft']) dx -= 1;
-        if (keys['d'] || keys['arrowright']) dx += 1;
+    if (moveForward === 0 && moveRight === 0) {
+        if (keys['w'] || keys['arrowup']) moveForward = 1;
+        if (keys['s'] || keys['arrowdown']) moveForward = -1;
+        if (keys['a'] || keys['arrowleft']) moveRight = -1;
+        if (keys['d'] || keys['arrowright']) moveRight = 1;
     }
     
     // Update debug info for Windows users
@@ -231,30 +363,32 @@ function handleMovement(deltaTime) {
         debugInfo.innerHTML = `
             Keys: ${JSON.stringify(keys)}<br>
             KeyCodes: ${JSON.stringify(keyCodes)}<br>
-            Movement: dx=${dx.toFixed(2)}, dy=${dy.toFixed(2)}<br>
-            Position: x=${player.x.toFixed(0)}, y=${player.y.toFixed(0)}
+            Movement: forward=${moveForward}, right=${moveRight}<br>
+            Position: x=${player.x.toFixed(0)}, z=${player.y.toFixed(0)}
         `;
     }
     
-    // Normalize diagonal movement
-    if (dx !== 0 && dy !== 0) {
-        const factor = 1 / Math.sqrt(2);
-        dx *= factor;
-        dy *= factor;
+    // Calculate movement direction based on camera orientation
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction);
+    direction.y = 0; // Keep movement on the XZ plane
+    direction.normalize();
+    
+    // Calculate forward and right vectors
+    const forward = direction.clone();
+    const right = new THREE.Vector3();
+    right.crossVectors(camera.up, forward).normalize();
+    
+    // Apply movement
+    if (moveForward !== 0) {
+        player.x += forward.x * moveForward * speed;
+        player.y += forward.z * moveForward * speed; // Note: player.y is actually Z in 3D space
     }
     
-    // Apply speed
-    dx *= speed;
-    dy *= speed;
-    
-    // Apply movement smoothing
-    const smoothFactor = 0.8;
-    movementSmoothing.x = movementSmoothing.x * smoothFactor + dx * (1 - smoothFactor);
-    movementSmoothing.y = movementSmoothing.y * smoothFactor + dy * (1 - smoothFactor);
-    
-    // Update player position with smoothed values
-    player.x += movementSmoothing.x;
-    player.y += movementSmoothing.y;
+    if (moveRight !== 0) {
+        player.x += right.x * moveRight * speed;
+        player.y += right.z * moveRight * speed;
+    }
     
     // Keep player within the map bounds
     const mapCenter = {
@@ -277,15 +411,16 @@ function handleMovement(deltaTime) {
     }
     
     // Send position to server (throttled to reduce network traffic)
-    if (Math.abs(movementSmoothing.x) > 0.01 || Math.abs(movementSmoothing.y) > 0.01) {
+    if (Math.abs(moveForward) > 0.01 || Math.abs(moveRight) > 0.01) {
         socket.emit('move', { x: player.x, y: player.y });
     }
     
-    // Update camera position with smoothing
-    const targetCameraX = player.x - gameCanvas.width / 2;
-    const targetCameraY = player.y - gameCanvas.height / 2;
-    camera.x = camera.x * 0.9 + targetCameraX * 0.1;
-    camera.y = camera.y * 0.9 + targetCameraY * 0.1;
+    // Update camera position
+    if (playerMeshes[playerId]) {
+        const playerMesh = playerMeshes[playerId];
+        playerMesh.position.set(player.x - mapCenter.x, playerMesh.position.y, player.y - mapCenter.y);
+        camera.position.set(playerMesh.position.x, playerMesh.position.y + 3, playerMesh.position.z);
+    }
     
     // Check for power-up collection
     gameState.powerUps.forEach(powerUp => {
@@ -301,7 +436,7 @@ function handleMovement(deltaTime) {
 
 // Shoot function
 function shoot() {
-    if (!playerId || !gameState.players[playerId]) return;
+    if (!playerId || !gameState.players[playerId] || !isPointerLocked) return;
     
     const player = gameState.players[playerId];
     const currentTime = performance.now();
@@ -323,234 +458,152 @@ function shoot() {
     lastShootTime = currentTime;
     setTimeout(() => { canShoot = true; }, SHOOT_COOLDOWN);
     
-    // Calculate direction
-    const worldMouseX = mousePosition.x + camera.x;
-    const worldMouseY = mousePosition.y + camera.y;
-    
-    const dx = worldMouseX - player.x;
-    const dy = worldMouseY - player.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    // Prevent division by zero
-    if (distance === 0) return;
-    
-    // Normalize direction
-    const velocityX = dx / distance * 10; // Bullet speed
-    const velocityY = dy / distance * 10;
+    // Get direction from camera
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction);
     
     // Send shoot event to server
     socket.emit('shoot', {
         x: player.x,
         y: player.y,
-        velocityX: velocityX,
-        velocityY: velocityY
+        velocityX: direction.x * 10, // Bullet speed
+        velocityY: direction.z * 10  // Using z for y in 2D space
     });
     
-    // Visual feedback for shooting
-    const recoilAmount = 5;
-    const recoilX = -velocityX * recoilAmount;
-    const recoilY = -velocityY * recoilAmount;
+    // Add muzzle flash effect
+    const flash = new THREE.PointLight(0xffff00, 1, 10);
+    flash.position.set(
+        camera.position.x + direction.x * 2,
+        camera.position.y + direction.y * 2,
+        camera.position.z + direction.z * 2
+    );
+    scene.add(flash);
     
-    // Apply a small camera shake for feedback
-    camera.x += recoilX * 0.2;
-    camera.y += recoilY * 0.2;
+    // Remove flash after a short time
+    setTimeout(() => {
+        scene.remove(flash);
+    }, 50);
+    
+    // Add recoil effect
+    camera.position.y += 0.05; // Small upward recoil
+    setTimeout(() => {
+        camera.position.y -= 0.05; // Return to original position
+    }, 100);
 }
 
-// Draw the game
-function draw() {
-    // Clear canvas
-    ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
-    
-    // Draw background grid
-    drawGrid();
-    
-    // Draw safe zone
-    drawSafeZone();
-    
-    // Draw power-ups
-    drawPowerUps();
-    
-    // Draw bullets
-    drawBullets();
-    
-    // Draw players
-    drawPlayers();
-    
-    // Draw minimap
-    drawMinimap();
-    
-    // Update UI
-    updateUI();
-}
-
-// Draw background grid
-function drawGrid() {
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1;
-    
-    const gridSize = 100;
-    const offsetX = -camera.x % gridSize;
-    const offsetY = -camera.y % gridSize;
-    
-    for (let x = offsetX; x < gameCanvas.width; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, gameCanvas.height);
-        ctx.stroke();
-    }
-    
-    for (let y = offsetY; y < gameCanvas.height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(gameCanvas.width, y);
-        ctx.stroke();
-    }
-}
-
-// Draw safe zone
-function drawSafeZone() {
+// Update 3D objects based on game state
+function updateObjects() {
     const mapCenter = {
-        x: gameState.mapSize.width / 2 - camera.x,
-        y: gameState.mapSize.height / 2 - camera.y
+        x: gameState.mapSize.width / 2,
+        y: gameState.mapSize.height / 2
     };
     
-    // Draw safe zone circle
-    ctx.beginPath();
-    ctx.arc(mapCenter.x, mapCenter.y, gameState.mapRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = '#3498db';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    
-    // Draw danger zone
-    ctx.beginPath();
-    ctx.arc(mapCenter.x, mapCenter.y, gameState.mapRadius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(231, 76, 60, 0.1)';
-    ctx.fill();
-}
-
-// Draw power-ups
-function drawPowerUps() {
-    gameState.powerUps.forEach(powerUp => {
-        const screenX = powerUp.x - camera.x;
-        const screenY = powerUp.y - camera.y;
-        
-        // Skip if off screen
-        if (screenX < -50 || screenX > gameCanvas.width + 50 ||
-            screenY < -50 || screenY > gameCanvas.height + 50) {
-            return;
-        }
-        
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, powerUp.radius, 0, Math.PI * 2);
-        
-        if (powerUp.type === 'health') {
-            ctx.fillStyle = '#2ecc71';
-        } else {
-            ctx.fillStyle = '#f1c40f';
-        }
-        
-        ctx.fill();
-        
-        // Draw icon
-        ctx.fillStyle = 'white';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        if (powerUp.type === 'health') {
-            ctx.fillText('+', screenX, screenY);
-        } else {
-            ctx.fillText('⦿', screenX, screenY);
-        }
-    });
-}
-
-// Draw bullets
-function drawBullets() {
-    gameState.bullets.forEach(bullet => {
-        const screenX = bullet.x - camera.x;
-        const screenY = bullet.y - camera.y;
-        
-        // Skip if off screen
-        if (screenX < -20 || screenX > gameCanvas.width + 20 ||
-            screenY < -20 || screenY > gameCanvas.height + 20) {
-            return;
-        }
-        
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, bullet.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-    });
-}
-
-// Draw players
-function drawPlayers() {
+    // Update player meshes
     Object.values(gameState.players).forEach(player => {
-        const screenX = player.x - camera.x;
-        const screenY = player.y - camera.y;
-        
-        // Skip if off screen
-        if (screenX < -50 || screenX > gameCanvas.width + 50 ||
-            screenY < -50 || screenY > gameCanvas.height + 50) {
-            return;
+        // Create new player mesh if it doesn't exist
+        if (!playerMeshes[player.id]) {
+            const newPlayerMesh = playerModel.clone();
+            newPlayerMesh.material = new THREE.MeshStandardMaterial({ color: player.color });
+            
+            // Add player name label
+            const nameCanvas = document.createElement('canvas');
+            const nameContext = nameCanvas.getContext('2d');
+            nameCanvas.width = 256;
+            nameCanvas.height = 64;
+            nameContext.font = '24px Arial';
+            nameContext.fillStyle = 'white';
+            nameContext.textAlign = 'center';
+            nameContext.fillText(player.name, 128, 32);
+            
+            const nameTexture = new THREE.CanvasTexture(nameCanvas);
+            const nameMaterial = new THREE.SpriteMaterial({ map: nameTexture });
+            const nameSprite = new THREE.Sprite(nameMaterial);
+            nameSprite.position.y = 3; // Position above player
+            nameSprite.scale.set(5, 1.25, 1);
+            
+            newPlayerMesh.add(nameSprite);
+            scene.add(newPlayerMesh);
+            playerMeshes[player.id] = newPlayerMesh;
         }
         
-        // Draw player circle
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, player.radius, 0, Math.PI * 2);
-        ctx.fillStyle = player.color;
-        ctx.fill();
+        // Update player mesh position
+        const playerMesh = playerMeshes[player.id];
+        playerMesh.position.set(player.x - mapCenter.x, 2, player.y - mapCenter.y);
         
-        // Draw player name
-        ctx.fillStyle = 'white';
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(player.name, screenX, screenY - player.radius - 5);
-        
-        // Draw health bar
-        const healthBarWidth = player.radius * 2;
-        const healthBarHeight = 5;
-        const healthPercentage = player.health / 100;
-        
-        ctx.fillStyle = '#333';
-        ctx.fillRect(
-            screenX - healthBarWidth / 2,
-            screenY + player.radius + 5,
-            healthBarWidth,
-            healthBarHeight
-        );
-        
-        ctx.fillStyle = healthPercentage > 0.5 ? '#2ecc71' : healthPercentage > 0.2 ? '#f39c12' : '#e74c3c';
-        ctx.fillRect(
-            screenX - healthBarWidth / 2,
-            screenY + player.radius + 5,
-            healthBarWidth * healthPercentage,
-            healthBarHeight
-        );
-        
-        // Draw direction indicator if this is the current player
+        // Update health bar
         if (player.id === playerId) {
-            const worldMouseX = mousePosition.x + camera.x;
-            const worldMouseY = mousePosition.y + camera.y;
+            healthFill.style.width = `${player.health}%`;
+            if (player.health > 50) {
+                healthFill.style.backgroundColor = '#2ecc71';
+            } else if (player.health > 20) {
+                healthFill.style.backgroundColor = '#f39c12';
+            } else {
+                healthFill.style.backgroundColor = '#e74c3c';
+            }
             
-            const dx = worldMouseX - player.x;
-            const dy = worldMouseY - player.y;
-            const angle = Math.atan2(dy, dx);
-            
-            const indicatorLength = player.radius + 10;
-            const endX = screenX + Math.cos(angle) * indicatorLength;
-            const endY = screenY + Math.sin(angle) * indicatorLength;
-            
-            ctx.beginPath();
-            ctx.moveTo(screenX, screenY);
-            ctx.lineTo(endX, endY);
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            // Update ammo count
+            ammoCount.textContent = `Ammo: ${player.ammo}`;
         }
     });
+    
+    // Remove player meshes for players no longer in the game
+    Object.keys(playerMeshes).forEach(id => {
+        if (!gameState.players[id]) {
+            scene.remove(playerMeshes[id]);
+            delete playerMeshes[id];
+        }
+    });
+    
+    // Update bullet meshes
+    // First remove all existing bullet meshes
+    bulletMeshes.forEach(mesh => scene.remove(mesh));
+    bulletMeshes = [];
+    
+    // Create new bullet meshes
+    gameState.bullets.forEach(bullet => {
+        const bulletGeometry = new THREE.SphereGeometry(bullet.radius, 8, 8);
+        const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const bulletMesh = new THREE.Mesh(bulletGeometry, bulletMaterial);
+        bulletMesh.position.set(bullet.x - mapCenter.x, 2, bullet.y - mapCenter.y);
+        scene.add(bulletMesh);
+        bulletMeshes.push(bulletMesh);
+    });
+    
+    // Update power-up meshes
+    // First remove all existing power-up meshes
+    powerUpMeshes.forEach(mesh => scene.remove(mesh));
+    powerUpMeshes = [];
+    
+    // Create new power-up meshes
+    gameState.powerUps.forEach(powerUp => {
+        const powerUpGeometry = new THREE.SphereGeometry(powerUp.radius, 16, 16);
+        const powerUpMaterial = new THREE.MeshBasicMaterial({ 
+            color: powerUp.type === 'health' ? 0x2ecc71 : 0xf1c40f,
+            transparent: true,
+            opacity: 0.8
+        });
+        const powerUpMesh = new THREE.Mesh(powerUpGeometry, powerUpMaterial);
+        powerUpMesh.position.set(powerUp.x - mapCenter.x, 2, powerUp.y - mapCenter.y);
+        
+        // Add floating animation
+        powerUpMesh.userData = { 
+            originalY: 2,
+            animationOffset: Math.random() * Math.PI * 2 // Random starting phase
+        };
+        
+        scene.add(powerUpMesh);
+        powerUpMeshes.push(powerUpMesh);
+    });
+    
+    // Update safe zone
+    if (terrainMesh) {
+        terrainMesh.geometry.dispose();
+        terrainMesh.geometry = new THREE.CircleGeometry(gameState.mapRadius, 64);
+    }
+    
+    // Update player count
+    const count = Object.keys(gameState.players).length;
+    playerCount.textContent = `Players: ${count}`;
 }
 
 // Draw minimap
@@ -585,6 +638,22 @@ function drawMinimap() {
         
         if (player.id === playerId) {
             minimapCtx.fillStyle = 'white';
+            
+            // Draw direction indicator
+            if (isPointerLocked) {
+                const direction = new THREE.Vector3();
+                camera.getWorldDirection(direction);
+                
+                const indicatorLength = 8;
+                const endX = minimapX + direction.x * indicatorLength;
+                const endY = minimapY + direction.z * indicatorLength;
+                
+                minimapCtx.moveTo(minimapX, minimapY);
+                minimapCtx.lineTo(endX, endY);
+                minimapCtx.strokeStyle = 'white';
+                minimapCtx.lineWidth = 1;
+                minimapCtx.stroke();
+            }
         } else {
             minimapCtx.fillStyle = player.color;
         }
@@ -608,40 +677,16 @@ function drawMinimap() {
         
         minimapCtx.fill();
     });
-    
-    // Draw camera view area
-    const viewX = camera.x * scaleFactor;
-    const viewY = camera.y * scaleFactor;
-    const viewWidth = gameCanvas.width * scaleFactor;
-    const viewHeight = gameCanvas.height * scaleFactor;
-    
-    minimapCtx.strokeStyle = 'white';
-    minimapCtx.lineWidth = 1;
-    minimapCtx.strokeRect(viewX, viewY, viewWidth, viewHeight);
 }
 
-// Update UI elements
-function updateUI() {
-    if (playerId && gameState.players[playerId]) {
-        const player = gameState.players[playerId];
-        
-        // Update health bar
-        healthFill.style.width = `${player.health}%`;
-        if (player.health > 50) {
-            healthFill.style.backgroundColor = '#2ecc71';
-        } else if (player.health > 20) {
-            healthFill.style.backgroundColor = '#f39c12';
-        } else {
-            healthFill.style.backgroundColor = '#e74c3c';
-        }
-        
-        // Update ammo count
-        ammoCount.textContent = `Ammo: ${player.ammo}`;
-    }
-    
-    // Update player count
-    const count = Object.keys(gameState.players).length;
-    playerCount.textContent = `Players: ${count}`;
+// Animate power-ups
+function animatePowerUps(time) {
+    powerUpMeshes.forEach(mesh => {
+        const floatHeight = 0.5;
+        const floatSpeed = 1.5;
+        mesh.position.y = mesh.userData.originalY + Math.sin(time * 0.001 * floatSpeed + mesh.userData.animationOffset) * floatHeight;
+        mesh.rotation.y += 0.01;
+    });
 }
 
 // Game loop
@@ -653,7 +698,18 @@ function gameLoop(timestamp) {
     if (playerId && gameState.players[playerId]) {
         handleMovement(deltaTime);
     }
-    draw();
+    
+    // Update 3D objects
+    updateObjects();
+    
+    // Animate power-ups
+    animatePowerUps(timestamp);
+    
+    // Draw minimap
+    drawMinimap();
+    
+    // Render scene
+    renderer.render(scene, camera);
     
     // Use requestAnimationFrame for smoother animation
     requestAnimationFrame(gameLoop);
@@ -669,10 +725,12 @@ socket.on('gameState', (state) => {
 });
 
 socket.on('dead', () => {
+    controls.unlock();
     gameOverScreen.style.display = 'flex';
 });
 
 socket.on('winner', () => {
+    controls.unlock();
     winnerScreen.style.display = 'flex';
 });
 

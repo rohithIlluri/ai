@@ -50,9 +50,13 @@ let playerModel; // Player model template
 
 // Camera settings
 let cameraMode = 'TPP'; // Start in TPP mode
-const TPP_DISTANCE = 10; // Distance behind player in TPP
-const TPP_HEIGHT = 5; // Height above player in TPP
+const TPP_DISTANCE = 8; // Reduced distance behind player in TPP (was 10)
+const TPP_HEIGHT = 4; // Reduced height above player in TPP (was 5)
+const FPP_HEIGHT = 2.8; // Eye level height in FPP mode
 let orbitControls; // For TPP mode
+let mouseSensitivity = 1.0; // Mouse sensitivity for camera control
+let cameraShake = 0; // Camera shake effect for shooting and damage
+let cameraLookAhead = 0.3; // How much the camera looks ahead in the direction of movement
 
 // Game state
 let gameState = {
@@ -332,6 +336,18 @@ function setupControls() {
             console.error('Pointer lock error:', event);
             alert('Could not lock pointer. Please try again or check browser permissions.');
         });
+        
+        // Add mouse sensitivity control
+        document.addEventListener('mousemove', (event) => {
+            if (isPointerLocked && cameraMode === 'FPP') {
+                // Apply custom sensitivity to mouse movement
+                controls.mouseMoveCallback = (event) => {
+                    const movementX = event.movementX * mouseSensitivity;
+                    const movementY = event.movementY * mouseSensitivity;
+                    // The rest of the pointer lock controls handling
+                };
+            }
+        });
     }
     
     // Check if OrbitControls is available for TPP
@@ -347,14 +363,14 @@ function setupControls() {
         // Create orbit controls for TPP
         orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
         orbitControls.enableDamping = true;
-        orbitControls.dampingFactor = 0.25;
+        orbitControls.dampingFactor = 0.15; // Reduced from 0.25 for smoother camera
         orbitControls.screenSpacePanning = false;
-        orbitControls.maxPolarAngle = Math.PI / 2; // Limit vertical rotation to horizon
-        orbitControls.minPolarAngle = Math.PI / 6; // Prevent looking too far down
-        orbitControls.minDistance = 5; // Minimum zoom distance
-        orbitControls.maxDistance = 20; // Increased maximum zoom distance
-        orbitControls.rotateSpeed = 0.5; // Slower rotation for smoother camera
-        orbitControls.zoomSpeed = 0.5; // Slower zoom for smoother camera
+        orbitControls.maxPolarAngle = Math.PI / 1.8; // Slightly increased from PI/2 to allow looking down more
+        orbitControls.minPolarAngle = Math.PI / 8; // Reduced from PI/6 to allow looking up more
+        orbitControls.minDistance = 4; // Reduced from 5 for closer zoom
+        orbitControls.maxDistance = 15; // Reduced from 20 for better control
+        orbitControls.rotateSpeed = 0.6; // Increased from 0.5 for more responsive rotation
+        orbitControls.zoomSpeed = 0.7; // Increased from 0.5 for more responsive zoom
         orbitControls.enabled = false; // Start with orbit controls disabled
         
         // Add key bindings for camera height adjustment in TPP mode
@@ -373,6 +389,19 @@ function setupControls() {
                     const currentTarget = orbitControls.target.clone();
                     currentTarget.y = Math.max(1, currentTarget.y - 1); // Decrease but keep above ground
                     orbitControls.target.copy(currentTarget);
+                    e.preventDefault();
+                }
+                
+                // Add mouse sensitivity adjustment
+                if (e.key === '+' || e.code === 'Equal' || e.keyCode === 187) {
+                    mouseSensitivity = Math.min(2.0, mouseSensitivity + 0.1);
+                    console.log('Mouse sensitivity increased to:', mouseSensitivity.toFixed(1));
+                    e.preventDefault();
+                }
+                
+                if (e.key === '-' || e.code === 'Minus' || e.keyCode === 189) {
+                    mouseSensitivity = Math.max(0.1, mouseSensitivity - 0.1);
+                    console.log('Mouse sensitivity decreased to:', mouseSensitivity.toFixed(1));
                     e.preventDefault();
                 }
             }
@@ -740,11 +769,12 @@ function handleMovement(deltaTime) {
     const player = gameState.players[playerId];
     // Normalize speed based on frame time for consistent movement regardless of frame rate
     // Increased base speed slightly for better responsiveness
-    const speed = 0.6 * (deltaTime / 16.67); 
+    const speed = 0.65 * (deltaTime / 16.67); // Increased from 0.6 for slightly faster movement
     let moveForward = 0;
     let moveBackward = 0;
     let moveLeft = 0;
     let moveRight = 0;
+    let sprint = false;
     
     // Multi-layered movement detection for maximum compatibility
     // First check keyCodes (most reliable for Windows)
@@ -752,6 +782,7 @@ function handleMovement(deltaTime) {
     if (keyCodes['ArrowDown'] || keyCodes['KeyS'] || keyCodes[83] || keyCodes[40]) moveBackward = 1;
     if (keyCodes['ArrowLeft'] || keyCodes['KeyA'] || keyCodes[65] || keyCodes[37]) moveLeft = 1;
     if (keyCodes['ArrowRight'] || keyCodes['KeyD'] || keyCodes[68] || keyCodes[39]) moveRight = 1;
+    if (keyCodes['ShiftLeft'] || keyCodes['ShiftRight'] || keyCodes[16]) sprint = true;
     
     // Then check keys as fallback (more reliable for Mac OS)
     if (moveForward === 0 && moveBackward === 0 && moveLeft === 0 && moveRight === 0) {
@@ -759,7 +790,11 @@ function handleMovement(deltaTime) {
         if (keys['s'] || keys['arrowdown'] || keys['S'] || keys['ArrowDown']) moveBackward = 1;
         if (keys['a'] || keys['arrowleft'] || keys['A'] || keys['ArrowLeft']) moveLeft = 1;
         if (keys['d'] || keys['arrowright'] || keys['D'] || keys['ArrowRight']) moveRight = 1;
+        if (keys['shift']) sprint = true;
     }
+    
+    // Apply sprint multiplier if sprinting
+    const sprintMultiplier = sprint ? 1.5 : 1.0;
     
     // Only process movement if keys are pressed
     if (moveForward === 0 && moveBackward === 0 && moveLeft === 0 && moveRight === 0) return;
@@ -777,7 +812,7 @@ function handleMovement(deltaTime) {
         // Calculate forward and right vectors based on camera orientation
         const forward = cameraDirection.clone();
         
-        // Calculate right vector correctly - FIXED: swapped the order of vectors
+        // Calculate right vector correctly
         const right = new THREE.Vector3();
         right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
         
@@ -804,7 +839,7 @@ function handleMovement(deltaTime) {
         // Calculate forward and right vectors based on camera orientation
         const forward = cameraDirection.clone();
         
-        // Calculate right vector correctly - FIXED: swapped the order of vectors
+        // Calculate right vector correctly
         const right = new THREE.Vector3();
         right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
         
@@ -828,13 +863,16 @@ function handleMovement(deltaTime) {
         moveDirection.normalize();
     }
     
+    // Apply sprint multiplier to movement speed
+    const finalSpeed = speed * sprintMultiplier;
+    
     // Store previous position for interpolation
     const oldX = player.x;
     const oldY = player.y;
     
-    // Apply movement
-    player.x += moveDirection.x * speed;
-    player.y += moveDirection.z * speed; // Note: player.y is actually Z in 3D space
+    // Apply movement with improved smoothing
+    player.x += moveDirection.x * finalSpeed;
+    player.y += moveDirection.z * finalSpeed; // Note: player.y is actually Z in 3D space
     
     // Keep player within the map bounds
     const distanceFromCenter = Math.sqrt(
@@ -881,7 +919,18 @@ function handleMovement(deltaTime) {
             while (rotationDiff < -Math.PI) rotationDiff += Math.PI * 2;
             
             // Apply smooth rotation with increased speed for more responsive turning
-            playerMesh.rotation.y += rotationDiff * 0.25; // Increased from 0.2 for faster rotation
+            playerMesh.rotation.y += rotationDiff * 0.3; // Increased from 0.25 for faster rotation
+            
+            // Add subtle bobbing effect when moving
+            if (sprint) {
+                // More pronounced bobbing when sprinting
+                playerMesh.position.y = Math.sin(performance.now() * 0.01) * 0.15;
+            } else {
+                playerMesh.position.y = Math.sin(performance.now() * 0.008) * 0.1;
+            }
+        } else {
+            // Reset height when not moving
+            playerMesh.position.y = 0;
         }
         
         // Update camera position based on camera mode
@@ -907,17 +956,36 @@ function updateCameraPosition(playerMesh, moveDirection) {
         return;
     }
     
+    // Apply camera shake if active
+    if (cameraShake > 0) {
+        const shakeAmount = cameraShake * 0.05;
+        camera.position.x += (Math.random() - 0.5) * shakeAmount;
+        camera.position.y += (Math.random() - 0.5) * shakeAmount;
+        camera.position.z += (Math.random() - 0.5) * shakeAmount;
+        cameraShake *= 0.9; // Decay shake effect
+        
+        if (cameraShake < 0.01) {
+            cameraShake = 0;
+        }
+    }
+    
     if (cameraMode === 'FPP') {
         // In FPP, camera is at player's eye level
-        // Use lerp for smoother camera movement in FPP mode
-        camera.position.lerp(
-            new THREE.Vector3(
-                playerMesh.position.x,
-                playerMesh.position.y + 3, // Eye level
-                playerMesh.position.z
-            ),
-            0.3 // Smoothing factor - higher value for more responsive camera
+        // Calculate look-ahead position based on movement direction
+        let targetPos = new THREE.Vector3(
+            playerMesh.position.x,
+            playerMesh.position.y + FPP_HEIGHT, // Eye level
+            playerMesh.position.z
         );
+        
+        // Add look-ahead effect when moving
+        if (moveDirection && moveDirection.length() > 0) {
+            targetPos.x += moveDirection.x * cameraLookAhead;
+            targetPos.z += moveDirection.z * cameraLookAhead;
+        }
+        
+        // Use lerp for smoother camera movement in FPP mode
+        camera.position.lerp(targetPos, 0.4); // Increased from 0.3 for more responsive camera
         
         // Ensure camera rotation matches player rotation in FPP mode
         if (moveDirection && moveDirection.length() > 0) {
@@ -935,8 +1003,16 @@ function updateCameraPosition(playerMesh, moveDirection) {
                 camera.position.z + lookDirection.z
             );
             
-            // Make camera look in the direction of movement
-            camera.lookAt(targetPosition);
+            // Make camera look in the direction of movement with smooth interpolation
+            const currentLookAt = new THREE.Vector3();
+            camera.getWorldDirection(currentLookAt);
+            
+            // Create a temporary camera to get the target rotation
+            const tempCamera = camera.clone();
+            tempCamera.lookAt(targetPosition);
+            
+            // Smoothly interpolate rotation
+            camera.quaternion.slerp(tempCamera.quaternion, 0.15);
         }
     } else {
         // In TPP, camera follows behind the player
@@ -950,38 +1026,61 @@ function updateCameraPosition(playerMesh, moveDirection) {
             rotationMatrix.makeRotationY(playerMesh.rotation.y);
             cameraOffset.applyMatrix4(rotationMatrix);
             
+            // Add dynamic offset based on movement
+            let dynamicOffset = new THREE.Vector3(0, 0, 0);
+            if (moveDirection && moveDirection.length() > 0) {
+                // Slightly adjust camera position in the direction of movement
+                dynamicOffset.x = moveDirection.x * 0.5;
+                dynamicOffset.z = moveDirection.z * 0.5;
+            }
+            
             // Position camera behind player with smooth transition
             camera.position.lerp(
                 new THREE.Vector3(
-                    playerMesh.position.x - cameraOffset.x,
+                    playerMesh.position.x - cameraOffset.x + dynamicOffset.x,
                     playerMesh.position.y + cameraOffset.y,
-                    playerMesh.position.z - cameraOffset.z
+                    playerMesh.position.z - cameraOffset.z + dynamicOffset.z
                 ),
-                0.15 // Smoothing factor - lower for smoother camera following
+                0.12 // Reduced from 0.15 for even smoother camera following
             );
             
-            // Make camera look at player
+            // Make camera look at player with slight look-ahead
             const targetPosition = new THREE.Vector3(
-                playerMesh.position.x,
+                playerMesh.position.x + (moveDirection ? moveDirection.x * 2 : 0),
                 playerMesh.position.y + 2, // Look at player's head
-                playerMesh.position.z
+                playerMesh.position.z + (moveDirection ? moveDirection.z * 2 : 0)
             );
             
-            // Use lookAt for immediate direction change
-            camera.lookAt(targetPosition);
+            // Use smooth interpolation for camera rotation
+            const currentLookAt = new THREE.Vector3();
+            camera.getWorldDirection(currentLookAt);
+            currentLookAt.normalize();
+            
+            // Create a temporary camera to get the target rotation
+            const tempCamera = camera.clone();
+            tempCamera.lookAt(targetPosition);
+            
+            // Smoothly interpolate rotation
+            camera.quaternion.slerp(tempCamera.quaternion, 0.1);
         }
         
         // Update orbit controls target to follow player
         if (orbitControls && orbitControls.target) {
-            // Smoothly move the target to the player position
-            orbitControls.target.lerp(
-                new THREE.Vector3(
-                    playerMesh.position.x,
-                    playerMesh.position.y + 2, // Target player's head
-                    playerMesh.position.z
-                ),
-                0.2 // Increased from 0.1 for smoother following
+            // Calculate target position with look-ahead
+            const targetPos = new THREE.Vector3(
+                playerMesh.position.x,
+                playerMesh.position.y + 2, // Target player's head
+                playerMesh.position.z
             );
+            
+            // Add look-ahead when moving
+            if (moveDirection && moveDirection.length() > 0) {
+                targetPos.x += moveDirection.x * 2;
+                targetPos.z += moveDirection.z * 2;
+            }
+            
+            // Smoothly move the target to the calculated position
+            orbitControls.target.lerp(targetPos, 0.15);
             
             // Ensure the camera is not too close to the player
             const distanceToPlayer = camera.position.distanceTo(new THREE.Vector3(
@@ -990,7 +1089,7 @@ function updateCameraPosition(playerMesh, moveDirection) {
                 playerMesh.position.z
             ));
             
-            if (distanceToPlayer < 5) {
+            if (distanceToPlayer < 4) {
                 // Move camera back to minimum distance
                 const direction = new THREE.Vector3().subVectors(
                     camera.position,
@@ -998,9 +1097,9 @@ function updateCameraPosition(playerMesh, moveDirection) {
                 ).normalize();
                 
                 camera.position.set(
-                    playerMesh.position.x + direction.x * 5,
-                    Math.max(playerMesh.position.y + 2 + direction.y * 5, playerMesh.position.y + 3),
-                    playerMesh.position.z + direction.z * 5
+                    playerMesh.position.x + direction.x * 4,
+                    Math.max(playerMesh.position.y + 2 + direction.y * 4, playerMesh.position.y + 3),
+                    playerMesh.position.z + direction.z * 4
                 );
             }
         }
@@ -1031,36 +1130,60 @@ function shoot() {
     lastShootTime = currentTime;
     setTimeout(() => { canShoot = true; }, SHOOT_COOLDOWN);
     
-    // Get direction from camera
+    // Get direction from camera with improved accuracy
     const direction = new THREE.Vector3();
     camera.getWorldDirection(direction);
+    direction.normalize();
     
-    // Send shoot event to server
+    // Add slight randomness to bullet direction for more realistic shooting
+    const spread = 0.02; // Bullet spread factor
+    direction.x += (Math.random() - 0.5) * spread;
+    direction.y += (Math.random() - 0.5) * spread;
+    direction.z += (Math.random() - 0.5) * spread;
+    direction.normalize(); // Re-normalize after adding spread
+    
+    // Send shoot event to server with improved direction
     socket.emit('shoot', {
         x: player.x,
         y: player.y,
-        velocityX: direction.x * 10, // Bullet speed
-        velocityY: direction.z * 10  // Using z for y in 2D space
+        velocityX: direction.x * 12, // Increased bullet speed from 10 to 12
+        velocityY: direction.z * 12  // Using z for y in 2D space
     });
     
-    // Add muzzle flash effect
-    const flash = new THREE.PointLight(0xffff00, 1, 10);
+    // Add muzzle flash effect with improved positioning
+    const flash = new THREE.PointLight(0xffff00, 1.5, 10); // Increased intensity from 1 to 1.5
+    
+    // Position flash at the end of the gun based on camera direction
+    const flashOffset = 2.5; // Distance from camera to flash
     flash.position.set(
-        camera.position.x + direction.x * 2,
-        camera.position.y + direction.y * 2,
-        camera.position.z + direction.z * 2
+        camera.position.x + direction.x * flashOffset,
+        camera.position.y + direction.y * flashOffset - 0.2, // Slightly lower than camera
+        camera.position.z + direction.z * flashOffset
     );
     scene.add(flash);
     
     // Remove flash after a short time
     setTimeout(() => {
         scene.remove(flash);
+    }, 70); // Increased from 50ms for slightly longer flash
+    
+    // Add recoil effect with camera shake
+    cameraShake = 1.0; // Set initial camera shake amount
+    
+    // Add vertical recoil
+    camera.position.y += 0.08; // Increased from 0.05 for more noticeable recoil
+    
+    // Add backward recoil
+    camera.position.x -= direction.x * 0.1;
+    camera.position.z -= direction.z * 0.1;
+    
+    // Return to original position with smooth damping
+    setTimeout(() => {
+        camera.position.y -= 0.04; // Return halfway
     }, 50);
     
-    // Add recoil effect
-    camera.position.y += 0.05; // Small upward recoil
     setTimeout(() => {
-        camera.position.y -= 0.05; // Return to original position
+        camera.position.y -= 0.04; // Return the rest of the way
     }, 100);
 }
 

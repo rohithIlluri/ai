@@ -56,6 +56,21 @@ let movementSmoothing = { x: 0, y: 0 }; // For smoother movement
 let canShoot = true; // Shooting cooldown flag
 let lastShootTime = 0; // Last time player shot
 const SHOOT_COOLDOWN = 250; // Cooldown in milliseconds
+let isWindowsOS = navigator.userAgent.indexOf('Windows') !== -1;
+let debugInfo = document.createElement('div');
+
+// Add debug info for troubleshooting
+if (isWindowsOS) {
+    debugInfo.style.position = 'absolute';
+    debugInfo.style.top = '10px';
+    debugInfo.style.left = '10px';
+    debugInfo.style.color = 'white';
+    debugInfo.style.backgroundColor = 'rgba(0,0,0,0.5)';
+    debugInfo.style.padding = '5px';
+    debugInfo.style.fontFamily = 'monospace';
+    debugInfo.style.zIndex = '1000';
+    document.body.appendChild(debugInfo);
+}
 
 // Set canvas size
 function resizeCanvas() {
@@ -89,22 +104,53 @@ function init() {
     
     // Keyboard controls - improved for cross-platform compatibility
     window.addEventListener('keydown', (e) => {
+        // Log key events for debugging on Windows
+        if (isWindowsOS) {
+            console.log('KeyDown:', e.key, e.code);
+        }
+        
+        // Handle both key and code for better cross-platform support
         const key = e.key.toLowerCase();
+        const code = e.code;
+        
+        // Map both key and keyCode for better compatibility
         keys[key] = true;
         
-        // Prevent scrolling with arrow keys
-        if(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+        // Also map arrow keys by code for Windows compatibility
+        if (code === 'ArrowUp' || code === 'KeyW') keys['arrowup'] = keys['w'] = true;
+        if (code === 'ArrowDown' || code === 'KeyS') keys['arrowdown'] = keys['s'] = true;
+        if (code === 'ArrowLeft' || code === 'KeyA') keys['arrowleft'] = keys['a'] = true;
+        if (code === 'ArrowRight' || code === 'KeyD') keys['arrowright'] = keys['d'] = true;
+        
+        // Prevent scrolling with arrow keys and space
+        if(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key) || 
+           ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
             e.preventDefault();
         }
         
         // Space bar for shooting
-        if (key === ' ') {
+        if (key === ' ' || code === 'Space') {
             shoot();
         }
     });
     
     window.addEventListener('keyup', (e) => {
-        keys[e.key.toLowerCase()] = false;
+        // Log key events for debugging on Windows
+        if (isWindowsOS) {
+            console.log('KeyUp:', e.key, e.code);
+        }
+        
+        const key = e.key.toLowerCase();
+        const code = e.code;
+        
+        // Clear both key and code mappings
+        keys[key] = false;
+        
+        // Also clear arrow keys by code for Windows compatibility
+        if (code === 'ArrowUp' || code === 'KeyW') keys['arrowup'] = keys['w'] = false;
+        if (code === 'ArrowDown' || code === 'KeyS') keys['arrowdown'] = keys['s'] = false;
+        if (code === 'ArrowLeft' || code === 'KeyA') keys['arrowleft'] = keys['a'] = false;
+        if (code === 'ArrowRight' || code === 'KeyD') keys['arrowright'] = keys['d'] = false;
     });
     
     // Mouse controls
@@ -168,6 +214,15 @@ function handleMovement(deltaTime) {
     if (keys['s'] || keys['arrowdown']) dy += 1;
     if (keys['a'] || keys['arrowleft']) dx -= 1;
     if (keys['d'] || keys['arrowright']) dx += 1;
+    
+    // Update debug info for Windows users
+    if (isWindowsOS) {
+        debugInfo.innerHTML = `
+            Keys: ${JSON.stringify(keys)}<br>
+            Movement: dx=${dx.toFixed(2)}, dy=${dy.toFixed(2)}<br>
+            Position: x=${player.x.toFixed(0)}, y=${player.y.toFixed(0)}
+        `;
+    }
     
     // Normalize diagonal movement
     if (dx !== 0 && dy !== 0) {
